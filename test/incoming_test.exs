@@ -901,6 +901,17 @@ defmodule IncomingTest do
     assert_recv(socket, "221")
   end
 
+  test "mail without helo is rejected", %{} do
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+
+    send_line(socket, "MAIL FROM:<sender@example.com>")
+    assert_recv(socket, "503")
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+  end
+
   test "noop and rset are accepted", %{} do
     {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
     assert_recv(socket, "220")

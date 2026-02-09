@@ -424,6 +424,28 @@ defmodule IncomingTest do
     assert File.exists?(Path.join([tmp, "committed", "stray"]))
   end
 
+  test "queue depth telemetry emits periodic event", %{tmp: tmp} do
+    id = "incoming-test-queue-depth-#{System.unique_integer([:positive])}"
+    parent = self()
+
+    :telemetry.attach(
+      id,
+      [:incoming, :queue, :depth],
+      &IncomingTest.TelemetryHandler.handle/4,
+      parent
+    )
+
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+    {:ok, _message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+
+    assert_receive {:telemetry, [:incoming, :queue, :depth], meas, _meta}, 6_000
+    assert meas.count >= 0
+
+    :telemetry.detach(id)
+  end
+
   test "dead letter metadata includes reason and timestamp", %{tmp: tmp} do
     from = "sender@example.com"
     to = ["rcpt@example.com"]
@@ -558,6 +580,57 @@ defmodule IncomingTest do
 
     send_line(socket, "QUIT")
     assert_recv(socket, "221")
+  end
+
+  test "invalid mail command yields error", %{} do
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+
+    send_line(socket, "EHLO client.example.com")
+    read_multiline(socket, "250")
+
+    send_line(socket, "MAIL FROM:<>")
+    assert_recv(socket, "250")
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+  end
+
+  test "invalid rcpt command yields error", %{} do
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+
+    send_line(socket, "EHLO client.example.com")
+    read_multiline(socket, "250")
+
+    send_line(socket, "MAIL FROM:<sender@example.com>")
+    assert_recv(socket, "250")
+
+    send_line(socket, "RCPT TO:<>")
+    assert_recv(socket, "501")
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+  end
+
+  test "policy short-circuits on rejection", %{} do
+    IncomingTest.CapturePolicy.set_target(self())
+    Application.put_env(:incoming, :policies, [Incoming.Policy.HelloRequired, IncomingTest.CapturePolicy])
+    restart_app()
+
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+
+    send_line(socket, "MAIL FROM:<sender@example.com>")
+    assert_recv(socket, "503")
+
+    refute_receive {:policy_phase, :mail_from, _ctx}, 200
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+
+    Application.put_env(:incoming, :policies, [])
+    restart_app()
   end
 
   test "rset clears envelope", %{} do

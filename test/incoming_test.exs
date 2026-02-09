@@ -238,6 +238,18 @@ defmodule IncomingTest do
     refute File.exists?(processing2)
   end
 
+  test "queue recover moves processing file entries", %{tmp: tmp} do
+    id = "file-entry-#{System.unique_integer([:positive])}"
+    processing = Path.join([tmp, "processing", id])
+    File.mkdir_p!(Path.dirname(processing))
+    File.write!(processing, "placeholder")
+
+    :ok = Incoming.Queue.Disk.recover()
+
+    assert File.exists?(Path.join([tmp, "committed", id]))
+    refute File.exists?(processing)
+  end
+
   test "delivery worker ack/retry/reject", %{tmp: tmp} do
     Application.put_env(:incoming, :delivery, IncomingTest.DummyAdapter)
     Application.put_env(:incoming, :delivery_opts, workers: 1, poll_interval: 10)
@@ -370,6 +382,12 @@ defmodule IncomingTest do
   test "invalid listener port raises", %{} do
     assert_raise ArgumentError, fn ->
       Incoming.Listener.child_spec(%{name: :bad, port: -1, tls: :disabled})
+    end
+  end
+
+  test "non-integer listener port raises", %{} do
+    assert_raise ArgumentError, fn ->
+      Incoming.Listener.child_spec(%{name: :bad, port: "2526", tls: :disabled})
     end
   end
 

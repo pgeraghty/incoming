@@ -84,14 +84,18 @@ defmodule Incoming.Session do
 
   @impl true
   def handle_RCPT(to, state) do
-    state = %{state | rcpt_to: state.rcpt_to ++ [to]}
-
-    if length(state.rcpt_to) > state.max_recipients do
-      {:error, resp(452, "Too many recipients"), state}
+    if is_nil(state.mail_from) do
+      {:error, resp(503, "Bad sequence of commands"), state}
     else
-      case policy_check(:rcpt_to, state) do
-        :ok -> {:ok, state}
-        {:reject, code, message} -> {:error, resp(code, message), state}
+      state = %{state | rcpt_to: state.rcpt_to ++ [to]}
+
+      if length(state.rcpt_to) > state.max_recipients do
+        {:error, resp(452, "Too many recipients"), state}
+      else
+        case policy_check(:rcpt_to, state) do
+          :ok -> {:ok, state}
+          {:reject, code, message} -> {:error, resp(code, message), state}
+        end
       end
     end
   end
@@ -103,6 +107,19 @@ defmodule Incoming.Session do
 
   @impl true
   def handle_DATA(from, to, data, state) do
+    cond do
+      is_nil(state.mail_from) ->
+        {:error, resp(503, "Bad sequence of commands"), state}
+
+      state.rcpt_to == [] ->
+        {:error, resp(503, "Bad sequence of commands"), state}
+
+      true ->
+        do_handle_DATA(from, to, data, state)
+    end
+  end
+
+  defp do_handle_DATA(from, to, data, state) do
     case policy_check(:data_start, state) do
       :ok ->
         if byte_size(data) > state.max_message_size do

@@ -1501,7 +1501,10 @@ defmodule IncomingTest do
     restart_app()
   end
 
-  test "rcpt before mail is accepted by gen_smtp defaults", %{} do
+  test "command order enforcement rejects rcpt before mail", %{tmp: tmp} do
+    Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
+    restart_app()
+
     {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
     assert_recv(socket, "220")
 
@@ -1509,13 +1512,18 @@ defmodule IncomingTest do
     read_multiline(socket, "250")
 
     send_line(socket, "RCPT TO:<rcpt@example.com>")
-    assert_recv(socket, "250")
+    assert_recv(socket, "503")
 
     send_line(socket, "QUIT")
     assert_recv(socket, "221")
+
+    assert File.ls!(Path.join(tmp, "committed")) == []
   end
 
-  test "command order enforcement rejects data before rcpt", %{} do
+  test "command order enforcement rejects data before rcpt", %{tmp: tmp} do
+    Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
+    restart_app()
+
     {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
     assert_recv(socket, "220")
 
@@ -1530,6 +1538,8 @@ defmodule IncomingTest do
 
     send_line(socket, "QUIT")
     assert_recv(socket, "221")
+
+    assert File.ls!(Path.join(tmp, "committed")) == []
   end
 
   test "mail without helo is rejected", %{} do

@@ -261,6 +261,40 @@ defmodule IncomingTest do
     assert File.ls!(Path.join(tmp, "committed")) == []
   end
 
+  test "commands sent during DATA are treated as message body", %{tmp: tmp} do
+    Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
+    restart_app()
+
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+
+    send_line(socket, "EHLO client.example.com")
+    read_multiline(socket, "250")
+
+    send_line(socket, "MAIL FROM:<sender@example.com>")
+    assert_recv(socket, "250")
+
+    send_line(socket, "RCPT TO:<rcpt@example.com>")
+    assert_recv(socket, "250")
+
+    send_line(socket, "DATA")
+    assert_recv(socket, "354")
+
+    # This is not a command while in DATA mode.
+    :ok = :gen_tcp.send(socket, "Subject: Test\r\n\r\nRSET\r\n")
+    assert_no_recv(socket, 100)
+
+    :ok = :gen_tcp.send(socket, "Body\r\n.\r\n")
+    assert_recv(socket, "250")
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+
+    [id] = File.ls!(Path.join(tmp, "committed"))
+    raw = File.read!(Path.join([tmp, "committed", id, "raw.eml"]))
+    assert String.contains?(raw, "\r\n\r\nRSET\r\nBody")
+  end
+
   test "queue dequeue and ack remove from processing", %{tmp: tmp} do
     from = "sender@example.com"
     to = ["rcpt@example.com"]
@@ -2081,6 +2115,10 @@ defmodule IncomingTest do
   defp assert_recv(socket, prefix) do
     assert {:ok, line} = :gen_tcp.recv(socket, 0, 1000)
     assert String.starts_with?(line, prefix)
+  end
+
+  defp assert_no_recv(socket, timeout_ms) do
+    assert {:error, :timeout} = :gen_tcp.recv(socket, 0, timeout_ms)
   end
 
   defp read_multiline(socket, code) do

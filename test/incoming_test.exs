@@ -32,6 +32,16 @@ defmodule IncomingTest do
     assert headers["subject"] == "Final"
   end
 
+  test "message headers keep last duplicate header", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "X-Test: one\r\nX-Test: two\r\n\r\nBody\r\n"
+
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    headers = Incoming.Message.headers(message)
+    assert headers["x-test"] == "two"
+  end
+
   test "message headers ignore malformed lines", %{tmp: tmp} do
     from = "sender@example.com"
     to = ["rcpt@example.com"]
@@ -580,6 +590,19 @@ defmodule IncomingTest do
     :telemetry.detach(id)
   end
 
+  test "queue depth reflects enqueue and ack", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+
+    assert Incoming.Queue.Disk.depth() == 0
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    assert Incoming.Queue.Disk.depth() == 1
+    assert {:ok, ^message} = Incoming.Queue.Disk.dequeue()
+    :ok = Incoming.Queue.Disk.ack(message.id)
+    assert Incoming.Queue.Disk.depth() == 0
+  end
+
   test "dead letter metadata includes reason and timestamp", %{tmp: tmp} do
     from = "sender@example.com"
     to = ["rcpt@example.com"]
@@ -926,6 +949,7 @@ defmodule IncomingTest do
 
     assert_receive {:telemetry, [:incoming, :delivery, :result], _meas, meta1}, 1_000
     assert meta1.outcome in [:retry, :reject]
+    assert meta1.reason != nil
 
     :telemetry.detach(id)
     Application.put_env(:incoming, :delivery, nil)

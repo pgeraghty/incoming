@@ -220,6 +220,24 @@ defmodule IncomingTest do
     refute File.exists?(processing)
   end
 
+  test "queue recover keeps remaining processing entries after conflict", %{tmp: tmp} do
+    id1 = "conflict-#{System.unique_integer([:positive])}"
+    id2 = "pending-#{System.unique_integer([:positive])}"
+    committed = Path.join([tmp, "committed", id1])
+    processing1 = Path.join([tmp, "processing", id1])
+    processing2 = Path.join([tmp, "processing", id2])
+    File.mkdir_p!(committed)
+    File.mkdir_p!(processing1)
+    File.mkdir_p!(processing2)
+
+    :ok = Incoming.Queue.Disk.recover()
+
+    assert File.exists?(committed)
+    refute File.exists?(processing1)
+    assert File.exists?(Path.join([tmp, "committed", id2]))
+    refute File.exists?(processing2)
+  end
+
   test "delivery worker ack/retry/reject", %{tmp: tmp} do
     Application.put_env(:incoming, :delivery, IncomingTest.DummyAdapter)
     Application.put_env(:incoming, :delivery_opts, workers: 1, poll_interval: 10)

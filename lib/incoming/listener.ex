@@ -9,7 +9,8 @@ defmodule Incoming.Listener do
     session_opts = [
       callbackoptions: [
         queue: Incoming.Config.queue_module(),
-        queue_opts: Incoming.Config.queue_opts()
+        queue_opts: Incoming.Config.queue_opts(),
+        max_message_size: Keyword.get(Incoming.Config.session_opts(), :max_message_size)
       ]
     ]
 

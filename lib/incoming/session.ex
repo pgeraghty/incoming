@@ -9,19 +9,21 @@ defmodule Incoming.Session do
             peer: nil,
             queue: Incoming.Queue.Disk,
             queue_opts: [],
+            max_message_size: 10 * 1024 * 1024,
             mail_from: nil,
             rcpt_to: []
 
   @impl true
   def init(hostname, _session_count, peer, options) do
-    {queue, queue_opts} = queue_from_opts(options)
+    {queue, queue_opts, max_message_size} = queue_from_opts(options)
     banner = [hostname, " ESMTP incoming"]
 
     state = %__MODULE__{
       hostname: hostname,
       peer: peer,
       queue: queue,
-      queue_opts: queue_opts
+      queue_opts: queue_opts,
+      max_message_size: max_message_size
     }
 
     {:ok, banner, state}
@@ -29,12 +31,12 @@ defmodule Incoming.Session do
 
   @impl true
   def handle_HELO(_hostname, state) do
-    {:ok, state}
+    {:ok, state.max_message_size, state}
   end
 
   @impl true
   def handle_EHLO(_hostname, extensions, state) do
-    {:ok, extensions, state}
+    {:ok, size_extension(extensions, state.max_message_size), state}
   end
 
   @impl true
@@ -112,6 +114,13 @@ defmodule Incoming.Session do
   defp queue_from_opts(options) do
     queue = Keyword.get(options, :queue, Incoming.Queue.Disk)
     queue_opts = Keyword.get(options, :queue_opts, [])
-    {queue, queue_opts}
+    max_message_size = Keyword.get(options, :max_message_size, 10 * 1024 * 1024)
+    {queue, queue_opts, max_message_size}
+  end
+
+  defp size_extension(extensions, max_size) do
+    size = Integer.to_string(max_size) |> to_charlist()
+    ext = Enum.reject(extensions, fn {key, _} -> to_string(key) == "SIZE" end)
+    [{~c"SIZE", size} | ext]
   end
 end

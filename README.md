@@ -60,12 +60,15 @@ config :incoming,
 
 Messages are stored on disk in:
 
+- `incoming/<id>/` (staging during enqueue; atomically moved into `committed/` when complete)
 - `committed/<id>/raw.eml`
 - `committed/<id>/meta.json`
 - `processing/<id>/` (in-flight delivery)
 - `dead/<id>/dead.json` (rejected)
 
 Retries move messages back to `committed/`. Rejects move to `dead/`.
+
+`meta.json` includes an `attempts` counter used to enforce `max_attempts` across restarts.
 
 ## Telemetry (Early)
 

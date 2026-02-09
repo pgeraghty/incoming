@@ -8,13 +8,12 @@ defmodule Incoming.Application do
   @impl true
   def start(_type, _args) do
     children = [
-      # Starts a worker by calling: Incoming.Worker.start_link(arg)
-      # {Incoming.Worker, arg}
+      Incoming.Supervisor
     ]
 
     # See https://hexdocs.pm/elixir/Supervisor.html
     # for other strategies and supported options
-    opts = [strategy: :one_for_one, name: Incoming.Supervisor]
+    opts = [strategy: :one_for_one, name: Incoming.AppSupervisor]
     Supervisor.start_link(children, opts)
   end
 end

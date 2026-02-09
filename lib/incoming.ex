@@ -1,18 +1,7 @@
 defmodule Incoming do
   @moduledoc """
-  Documentation for `Incoming`.
+  Incoming is an inbound-only SMTP server library for Elixir.
+
+  This is an early placeholder implementation to reserve the Hex package name.
   """
-
-  @doc """
-  Hello world.
-
-  ## Examples
-
-      iex> Incoming.hello()
-      :world
-
-  """
-  def hello do
-    :world
-  end
 end

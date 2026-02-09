@@ -9,6 +9,7 @@ defmodule Incoming.MixProject do
       description: description(),
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
+      elixirc_paths: elixirc_paths(Mix.env()),
       package: package(),
       deps: deps()
     ]
@@ -25,9 +26,14 @@ defmodule Incoming.MixProject do
   # Run "mix help deps" to learn about dependencies.
   defp deps do
     [
+      {:jason, "~> 1.4"},
+      {:gen_smtp, "~> 1.2"},
       {:ex_doc, ">= 0.0.0", only: :dev, runtime: false}
     ]
   end
+
+  defp elixirc_paths(:test), do: ["lib", "test/support"]
+  defp elixirc_paths(_env), do: ["lib"]
 
   defp description do
     "Production-grade inbound SMTP server library for Elixir."

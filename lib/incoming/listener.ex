@@ -10,6 +10,8 @@ defmodule Incoming.Listener do
     tls = Map.get(listener, :tls, :disabled)
     tls_opts = Map.get(listener, :tls_opts, [])
 
+    validate_tls!(tls, tls_opts)
+
     callback_opts = [
       queue: Incoming.Config.queue_module(),
       queue_opts: Incoming.Config.queue_opts(),
@@ -20,10 +22,8 @@ defmodule Incoming.Listener do
     ]
 
     session_opts =
-      [
-        callbackoptions: callback_opts
-      ]
-      |> maybe_add_tls_options(tls_opts)
+      [callbackoptions: callback_opts]
+      |> maybe_add_tls_options(tls_opts, tls)
 
     opts = [
       {:domain, to_charlist(domain)},
@@ -39,6 +39,31 @@ defmodule Incoming.Listener do
     Application.get_env(:incoming, :domain, "localhost")
   end
 
-  defp maybe_add_tls_options(opts, []), do: opts
-  defp maybe_add_tls_options(opts, tls_opts), do: Keyword.put(opts, :tls_options, tls_opts)
+  defp validate_tls!(:disabled, _opts), do: :ok
+
+  defp validate_tls!(mode, opts) when mode in [:optional, :required] do
+    certfile = Keyword.get(opts, :certfile)
+    keyfile = Keyword.get(opts, :keyfile)
+
+    cond do
+      is_nil(certfile) or is_nil(keyfile) ->
+        raise ArgumentError, "tls_opts must include :certfile and :keyfile when tls is enabled"
+
+      not File.exists?(certfile) ->
+        raise ArgumentError, "certfile does not exist: #{certfile}"
+
+      not File.exists?(keyfile) ->
+        raise ArgumentError, "keyfile does not exist: #{keyfile}"
+
+      true ->
+        :ok
+    end
+  end
+
+  defp validate_tls!(mode, _opts) do
+    raise ArgumentError, "invalid tls mode: #{inspect(mode)}"
+  end
+
+  defp maybe_add_tls_options(opts, _tls_opts, :disabled), do: opts
+  defp maybe_add_tls_options(opts, tls_opts, _mode), do: Keyword.put(opts, :tls_options, tls_opts)
 end

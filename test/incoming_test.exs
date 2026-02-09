@@ -110,7 +110,17 @@ defmodule IncomingTest do
 
   test "tls required policy rejects before starttls", %{} do
     Application.put_env(:incoming, :policies, [Incoming.Policy.TlsRequired])
-    Application.put_env(:incoming, :listeners, [%{name: :test, port: 2526, tls: :required}])
+    Application.put_env(:incoming, :listeners, [
+      %{
+        name: :test,
+        port: 2526,
+        tls: :required,
+        tls_opts: [
+          certfile: "test/fixtures/test-cert.pem",
+          keyfile: "test/fixtures/test-key.pem"
+        ]
+      }
+    ])
     restart_app()
 
     {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
@@ -128,6 +138,12 @@ defmodule IncomingTest do
     Application.put_env(:incoming, :policies, [])
     Application.put_env(:incoming, :listeners, [%{name: :test, port: 2526, tls: :disabled}])
     restart_app()
+  end
+
+  test "tls config requires cert and key", %{} do
+    assert_raise ArgumentError, fn ->
+      Incoming.Listener.child_spec(%{name: :bad, port: 2527, tls: :required, tls_opts: []})
+    end
   end
 
   defp send_line(socket, line) do
@@ -176,4 +192,5 @@ defmodule IncomingTest do
     Application.stop(:incoming)
     Application.ensure_all_started(:incoming)
   end
+
 end

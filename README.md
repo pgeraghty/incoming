@@ -44,6 +44,25 @@ config :incoming,
   ]
 ```
 
+## TLS (Early)
+
+You can enable TLS with self-signed certs for testing:
+
+```elixir
+config :incoming,
+  listeners: [
+    %{
+      name: :default,
+      port: 2525,
+      tls: :required,
+      tls_opts: [
+        certfile: "test/fixtures/test-cert.pem",
+        keyfile: "test/fixtures/test-key.pem"
+      ]
+    }
+  ]
+```
+
 ## Feedback
 
 If you find problems or have suggestions, please open an issue and include:

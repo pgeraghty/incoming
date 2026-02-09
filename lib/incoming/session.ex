@@ -49,7 +49,14 @@ defmodule Incoming.Session do
   @impl true
   def handle_EHLO(_hostname, extensions, state) do
     case policy_check(:helo, state) do
-      :ok -> {:ok, size_extension(extensions, state.max_message_size), %{state | seen_helo: true}}
+      :ok ->
+        exts =
+          extensions
+          |> size_extension(state.max_message_size)
+          |> maybe_add_starttls(state)
+
+        {:ok, exts, %{state | seen_helo: true}}
+
       {:reject, code, message} -> {:error, "#{code} #{message}", state}
     end
   end
@@ -183,4 +190,11 @@ defmodule Incoming.Session do
     ext = Enum.reject(extensions, fn {key, _} -> to_string(key) == "SIZE" end)
     [{~c"SIZE", size} | ext]
   end
+
+  defp maybe_add_starttls(extensions, %{tls_mode: mode, tls_active: false})
+       when mode in [:optional, :required] do
+    [{~c"STARTTLS", true} | extensions]
+  end
+
+  defp maybe_add_starttls(extensions, _state), do: extensions
 end

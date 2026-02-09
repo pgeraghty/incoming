@@ -208,6 +208,18 @@ defmodule IncomingTest do
     assert Incoming.Queue.Disk.depth() == 2
   end
 
+  test "queue recover does not clobber existing committed entry", %{tmp: tmp} do
+    id = "conflict-#{System.unique_integer([:positive])}"
+    committed = Path.join([tmp, "committed", id])
+    processing = Path.join([tmp, "processing", id])
+    File.mkdir_p!(committed)
+    File.mkdir_p!(processing)
+
+    :ok = Incoming.Queue.Disk.recover()
+    assert File.exists?(committed)
+    refute File.exists?(processing)
+  end
+
   test "delivery worker ack/retry/reject", %{tmp: tmp} do
     Application.put_env(:incoming, :delivery, IncomingTest.DummyAdapter)
     Application.put_env(:incoming, :delivery_opts, workers: 1, poll_interval: 10)
@@ -891,6 +903,14 @@ defmodule IncomingTest do
 
     send_line(socket, "WUT")
     assert_recv(socket, "500")
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+  end
+
+  test "quit without helo is accepted", %{} do
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
 
     send_line(socket, "QUIT")
     assert_recv(socket, "221")

@@ -38,11 +38,8 @@ defmodule Incoming.Queue.Disk do
     fsync = Keyword.get(opts, :fsync, true)
     max_message_size = Keyword.get(opts, :max_message_size, nil)
 
-    ensure_dirs(path)
     id = Incoming.Id.generate()
     base = Path.join([path, "committed", id])
-    File.mkdir_p!(base)
-
     raw_path = Path.join(base, "raw.eml")
     raw_tmp_path = Path.join(base, "raw.tmp")
     meta_path = Path.join(base, "meta.json")
@@ -50,6 +47,10 @@ defmodule Incoming.Queue.Disk do
     received_at = DateTime.utc_now()
 
     try do
+      _ = Incoming.Validate.queue_opts!(opts)
+      ensure_dirs(path)
+      File.mkdir_p!(base)
+
       size =
         File.open!(raw_tmp_path, [:write, :binary], fn io ->
           Enum.reduce_while(chunks, 0, fn chunk, acc ->

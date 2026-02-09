@@ -35,6 +35,29 @@ defmodule IncomingTest do
     assert File.ls!(Path.join(tmp, "committed")) == []
   end
 
+  test "queue enqueue returns error when path is a file (not a directory)", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+
+    file_path = Path.join(tmp, "not-a-dir")
+    File.write!(file_path, "nope")
+
+    assert {:error, %File.Error{reason: reason}} =
+             Incoming.Queue.Disk.enqueue(from, to, data, path: file_path, fsync: false)
+
+    assert reason in [:enotdir, :eexist]
+  end
+
+  test "queue enqueue returns error on invalid queue path option", %{tmp: _tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+
+    assert {:error, %ArgumentError{}} =
+             Incoming.Queue.Disk.enqueue(from, to, data, path: "", fsync: false)
+  end
+
   test "message headers parsed from raw file", %{tmp: tmp} do
     from = "sender@example.com"
     to = ["rcpt@example.com"]

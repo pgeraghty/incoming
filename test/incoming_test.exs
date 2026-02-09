@@ -315,6 +315,23 @@ defmodule IncomingTest do
     restart_app()
   end
 
+  test "starttls refused when disabled", %{} do
+    Application.put_env(:incoming, :listeners, [%{name: :test, port: 2526, tls: :disabled}])
+    restart_app()
+
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+
+    send_line(socket, "EHLO client.example.com")
+    read_multiline(socket, "250")
+
+    send_line(socket, "STARTTLS")
+    assert_recv(socket, "500")
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+  end
+
   test "ehlo advertises size and omits starttls when disabled", %{} do
     Application.put_env(:incoming, :listeners, [%{name: :test, port: 2526, tls: :disabled}])
     Application.put_env(:incoming, :session_opts, max_message_size: 1234, max_recipients: 100)
@@ -369,6 +386,18 @@ defmodule IncomingTest do
 
     {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
     File.write!(Path.join([tmp, "committed", message.id, "meta.json"]), "not-json")
+
+    assert {:empty} = Incoming.Queue.Disk.dequeue()
+    assert File.exists?(Path.join([tmp, "committed", message.id]))
+  end
+
+  test "queue dequeue skips missing metadata file", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    File.rm!(Path.join([tmp, "committed", message.id, "meta.json"]))
 
     assert {:empty} = Incoming.Queue.Disk.dequeue()
     assert File.exists?(Path.join([tmp, "committed", message.id]))

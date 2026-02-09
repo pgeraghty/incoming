@@ -429,6 +429,29 @@ defmodule IncomingTest do
     restart_app()
   end
 
+  test "starttls required allows mail after tls handshake", %{} do
+    Application.put_env(:incoming, :listeners, [
+      %{
+        name: :test,
+        port: 2526,
+        tls: :required,
+        tls_opts: [
+          certfile: "test/fixtures/test-cert.pem",
+          keyfile: "test/fixtures/test-key.pem"
+        ]
+      }
+    ])
+    restart_app()
+
+    cmd = "printf 'EHLO test\\nSTARTTLS\\nEHLO test\\nMAIL FROM:<sender@example.com>\\nRCPT TO:<rcpt@example.com>\\nDATA\\nSubject: Test\\n\\nBody\\n.\\nQUIT\\n' | openssl s_client -starttls smtp -connect 127.0.0.1:2526 -quiet -servername localhost"
+    {output, _status} = System.cmd("bash", ["-lc", cmd])
+    assert output =~ "250 SMTPUTF8"
+    assert output =~ "250 Ok: queued"
+
+    Application.put_env(:incoming, :listeners, [%{name: :test, port: 2526, tls: :disabled}])
+    restart_app()
+  end
+
   test "tls required policy enforces starttls across connections", %{} do
     Application.put_env(:incoming, :policies, [Incoming.Policy.TlsRequired])
     Application.put_env(:incoming, :listeners, [
@@ -1085,8 +1108,9 @@ defmodule IncomingTest do
     wait_until(fn -> File.exists?(Path.join([tmp, "dead", message.id])) end)
     dead_json = Path.join([tmp, "dead", message.id, "dead.json"])
     assert {:ok, payload} = File.read(dead_json)
-    assert payload =~ "max_attempts"
-    assert payload =~ "temporary"
+    decoded = Jason.decode!(payload)
+    assert decoded["reason"] =~ "max_attempts"
+    assert decoded["reason"] =~ "temporary"
 
     Application.put_env(:incoming, :delivery, nil)
     Application.put_env(:incoming, :delivery_opts, workers: 1, poll_interval: 1_000)

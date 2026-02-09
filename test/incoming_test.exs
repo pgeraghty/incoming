@@ -443,7 +443,7 @@ defmodule IncomingTest do
     ])
     restart_app()
 
-    cmd = "printf 'EHLO test\\nSTARTTLS\\nEHLO test\\nMAIL FROM:<sender@example.com>\\nRCPT TO:<rcpt@example.com>\\nDATA\\nSubject: Test\\n\\nBody\\n.\\nQUIT\\n' | openssl s_client -starttls smtp -connect 127.0.0.1:2526 -quiet -servername localhost"
+    cmd = "timeout 5s bash -lc \"printf 'EHLO test\\nEHLO test\\nMAIL FROM:<sender@example.com>\\nRCPT TO:<rcpt@example.com>\\nDATA\\nSubject: Test\\n\\nBody\\n.\\nQUIT\\n' | openssl s_client -starttls smtp -crlf -connect 127.0.0.1:2526 -quiet -ign_eof -servername localhost\""
     {output, _status} = System.cmd("bash", ["-lc", cmd])
     assert output =~ "250 SMTPUTF8"
     assert output =~ "250 Ok: queued"
@@ -520,6 +520,22 @@ defmodule IncomingTest do
     assert Enum.any?(lines, &String.contains?(&1, "SIZE 1234"))
     refute Enum.any?(lines, &String.contains?(&1, "STARTTLS"))
 
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+
+    Application.put_env(:incoming, :session_opts, max_message_size: 10 * 1024 * 1024, max_recipients: 100)
+    restart_app()
+  end
+
+  test "ehlo size reflects updated configuration", %{} do
+    Application.put_env(:incoming, :session_opts, max_message_size: 2048, max_recipients: 100)
+    restart_app()
+
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+    send_line(socket, "EHLO client.example.com")
+    lines = read_multiline_lines(socket, "250")
+    assert Enum.any?(lines, &String.contains?(&1, "SIZE 2048"))
     send_line(socket, "QUIT")
     assert_recv(socket, "221")
 
@@ -968,6 +984,26 @@ defmodule IncomingTest do
 
     send_line(socket, "RCPT TO:<rcpt@example.com>")
     assert_recv(socket, "250")
+
+    send_line(socket, "RSET")
+    assert_recv(socket, "250")
+
+    send_line(socket, "DATA")
+    assert_recv(socket, "503")
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+  end
+
+  test "rset after data command still rejects without mail", %{} do
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+
+    send_line(socket, "EHLO client.example.com")
+    read_multiline(socket, "250")
+
+    send_line(socket, "DATA")
+    assert_recv(socket, "503")
 
     send_line(socket, "RSET")
     assert_recv(socket, "250")

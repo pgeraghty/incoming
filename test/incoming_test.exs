@@ -1002,6 +1002,48 @@ defmodule IncomingTest do
     assert message.id == id
   end
 
+  test "queue recover finalizes staged incoming entry (incoming -> committed)", %{tmp: tmp} do
+    id = "staged-finalize-#{System.unique_integer([:positive])}"
+    base = Path.join([tmp, "incoming", id])
+    File.mkdir_p!(base)
+
+    File.write!(Path.join(base, "raw.tmp"), "Subject: Ok\r\n\r\nBody\r\n")
+
+    File.write!(
+      Path.join(base, "meta.tmp"),
+      Jason.encode!(%{
+        "id" => id,
+        "mail_from" => "sender@example.com",
+        "rcpt_to" => ["rcpt@example.com"],
+        "received_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
+        "attempts" => 0
+      })
+    )
+
+    assert :ok = Incoming.Queue.Disk.recover()
+
+    refute File.exists?(base)
+    assert File.exists?(Path.join([tmp, "committed", id, "raw.eml"]))
+    assert File.exists?(Path.join([tmp, "committed", id, "meta.json"]))
+  end
+
+  test "queue recover dead-letters incomplete staged incoming entry", %{tmp: tmp} do
+    id = "staged-incomplete-#{System.unique_integer([:positive])}"
+    base = Path.join([tmp, "incoming", id])
+    File.mkdir_p!(base)
+
+    # raw.tmp exists but meta.tmp is missing
+    File.write!(Path.join(base, "raw.tmp"), "Subject: Ok\r\n\r\nBody\r\n")
+
+    assert :ok = Incoming.Queue.Disk.recover()
+
+    refute File.exists?(base)
+    dead_json = Path.join([tmp, "dead", id, "dead.json"])
+    assert File.exists?(dead_json)
+    decoded = Jason.decode!(File.read!(dead_json))
+    assert decoded["reason"] =~ "incomplete_write"
+  end
+
   test "queue depth telemetry emits periodic event", %{tmp: tmp} do
     id = "incoming-test-queue-depth-#{System.unique_integer([:positive])}"
     parent = self()

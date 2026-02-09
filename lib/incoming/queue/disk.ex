@@ -16,7 +16,17 @@ defmodule Incoming.Queue.Disk do
     fsync = Keyword.get(opts, :fsync, true)
     ensure_dirs(path)
     ensure_writable!(path)
+    schedule_depth_telemetry()
     {:ok, %{path: path, fsync: fsync}}
+  end
+
+  @impl true
+  def handle_info(:emit_depth, state) do
+    if Code.ensure_loaded?(:telemetry) and function_exported?(:telemetry, :execute, 3) do
+      :telemetry.execute([:incoming, :queue, :depth], %{count: depth()}, %{})
+    end
+    schedule_depth_telemetry()
+    {:noreply, state}
   end
 
   @impl true
@@ -170,6 +180,10 @@ defmodule Incoming.Queue.Disk do
     test_path = Path.join(path, ".incoming_write_test")
     File.write!(test_path, "ok")
     File.rm!(test_path)
+  end
+
+  defp schedule_depth_telemetry do
+    Process.send_after(self(), :emit_depth, 5_000)
   end
 
   defp write_dead_reason(dir, reason) do

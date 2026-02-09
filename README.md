@@ -65,6 +65,21 @@ Events emitted:
 - `[:incoming, :session, :connect]` measurements: `%{count: 1}`, metadata: `%{peer}`
 - `[:incoming, :session, :accepted]` measurements: `%{count: 1}`, metadata: `%{id}`
 - `[:incoming, :session, :rejected]` measurements: `%{count: 1}`, metadata: `%{reason}`
+- `[:incoming, :queue, :depth]` measurements: `%{count}`, metadata: `%{}`
+
+## Delivery Adapter (Early)
+
+Implement `Incoming.DeliveryAdapter` and configure it:
+
+```elixir
+config :incoming, delivery: MyApp.IncomingAdapter
+```
+
+Return values:
+
+- `:ok` -> message acked
+- `{:retry, reason}` -> message requeued with backoff
+- `{:reject, reason}` -> message moved to dead-letter
 
 ## TLS (Early)
 

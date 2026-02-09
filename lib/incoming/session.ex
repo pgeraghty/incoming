@@ -34,7 +34,7 @@ defmodule Incoming.Session do
 
     case policy_check(:connect, state) do
       :ok ->
-        emit(:connect, %{peer: peer})
+        emit(:connect, %{peer: peer, hostname: hostname})
         {:ok, banner, state}
       {:reject, code, message} ->
         emit(:rejected, %{reason: message})
@@ -184,6 +184,7 @@ defmodule Incoming.Session do
       Incoming.Policy.Pipeline.run(policies, %{
         phase: phase,
         peer: state.peer,
+        hostname: state.hostname,
         envelope: %Incoming.Envelope{
           mail_from: state.mail_from,
           rcpt_to: state.rcpt_to

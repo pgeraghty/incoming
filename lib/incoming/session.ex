@@ -33,7 +33,9 @@ defmodule Incoming.Session do
     }
 
     case policy_check(:connect, state) do
-      :ok -> {:ok, banner, state}
+      :ok ->
+        emit(:connect, %{peer: peer})
+        {:ok, banner, state}
       {:reject, code, message} -> {:stop, :policy_reject, "#{code} #{message}"}
     end
   end
@@ -102,14 +104,17 @@ defmodule Incoming.Session do
           {:ok, %Incoming.Message{id: id} = message} ->
             _ = policy_check(:message_complete, state)
             Incoming.Delivery.Dispatcher.dispatch(message)
+            emit(:accepted, %{id: id})
             {:ok, "Ok: queued as <#{id}>", state}
 
           {:error, reason} ->
             Logger.error("queue_error=#{inspect(reason)}")
+            emit(:rejected, %{reason: reason})
             {:error, "451 Temporary failure", state}
         end
 
       {:reject, code, message} ->
+        emit(:rejected, %{reason: message})
         {:error, "#{code} #{message}", state}
     end
   end
@@ -197,4 +202,10 @@ defmodule Incoming.Session do
   end
 
   defp maybe_add_starttls(extensions, _state), do: extensions
+
+  defp emit(event, meta) do
+    if Code.ensure_loaded?(:telemetry) and function_exported?(:telemetry, :execute, 3) do
+      :telemetry.execute([:incoming, :session, event], %{count: 1}, meta)
+    end
+  end
 end

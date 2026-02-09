@@ -13,9 +13,8 @@ defmodule Incoming.Queue.Disk do
   def init(opts) do
     path = Keyword.get(opts, :path, "/tmp/incoming")
     fsync = Keyword.get(opts, :fsync, true)
-    File.mkdir_p!(Path.join(path, "committed"))
-    File.mkdir_p!(Path.join(path, "processing"))
-    File.mkdir_p!(Path.join(path, "dead"))
+    ensure_dirs(path)
+    ensure_writable!(path)
     {:ok, %{path: path, fsync: fsync}}
   end
 
@@ -57,7 +56,8 @@ defmodule Incoming.Queue.Disk do
     if Code.ensure_loaded?(:telemetry) and function_exported?(:telemetry, :execute, 3) do
       :telemetry.execute([:incoming, :message, :queued], %{count: 1}, %{
         id: id,
-        size: byte_size(data)
+        size: byte_size(data),
+        queue_depth: depth()
       })
     end
 
@@ -163,6 +163,12 @@ defmodule Incoming.Queue.Disk do
     File.mkdir_p!(Path.join(path, "committed"))
     File.mkdir_p!(Path.join(path, "processing"))
     File.mkdir_p!(Path.join(path, "dead"))
+  end
+
+  defp ensure_writable!(path) do
+    test_path = Path.join(path, ".incoming_write_test")
+    File.write!(test_path, "ok")
+    File.rm!(test_path)
   end
 
   defp write_dead_reason(dir, reason) do

@@ -11,13 +11,15 @@ defmodule Incoming.Session do
             queue_opts: [],
             max_message_size: 10 * 1024 * 1024,
             max_recipients: 100,
+            tls_mode: :disabled,
+            tls_active: false,
             mail_from: nil,
             rcpt_to: [],
             seen_helo: false
 
   @impl true
   def init(hostname, _session_count, peer, options) do
-    {queue, queue_opts, max_message_size, max_recipients} = queue_from_opts(options)
+    {queue, queue_opts, max_message_size, max_recipients, tls_mode} = queue_from_opts(options)
     banner = [hostname, " ESMTP incoming"]
 
     state = %__MODULE__{
@@ -26,7 +28,8 @@ defmodule Incoming.Session do
       queue: queue,
       queue_opts: queue_opts,
       max_message_size: max_message_size,
-      max_recipients: max_recipients
+      max_recipients: max_recipients,
+      tls_mode: tls_mode
     }
 
     case policy_check(:connect, state) do
@@ -121,7 +124,7 @@ defmodule Incoming.Session do
 
   @impl true
   def handle_STARTTLS(state) do
-    state
+    %{state | tls_active: true}
   end
 
   @impl true
@@ -149,7 +152,8 @@ defmodule Incoming.Session do
     queue_opts = Keyword.get(options, :queue_opts, [])
     max_message_size = Keyword.get(options, :max_message_size, 10 * 1024 * 1024)
     max_recipients = Keyword.get(options, :max_recipients, 100)
-    {queue, queue_opts, max_message_size, max_recipients}
+    tls_mode = Keyword.get(options, :tls_mode, :disabled)
+    {queue, queue_opts, max_message_size, max_recipients, tls_mode}
   end
 
   defp policy_check(phase, state) do
@@ -167,7 +171,9 @@ defmodule Incoming.Session do
         },
         max_message_size: state.max_message_size,
         max_recipients: state.max_recipients,
-        seen_helo: state.seen_helo
+        seen_helo: state.seen_helo,
+        tls_mode: state.tls_mode,
+        tls_active: state.tls_active
       })
     end
   end

@@ -39,7 +39,8 @@ config :incoming,
   policies: [
     Incoming.Policy.HelloRequired,
     Incoming.Policy.SizeLimit,
-    Incoming.Policy.MaxRecipients
+    Incoming.Policy.MaxRecipients,
+    Incoming.Policy.TlsRequired
   ]
 ```
 

@@ -108,6 +108,28 @@ defmodule IncomingTest do
     restart_app()
   end
 
+  test "tls required policy rejects before starttls", %{} do
+    Application.put_env(:incoming, :policies, [Incoming.Policy.TlsRequired])
+    Application.put_env(:incoming, :listeners, [%{name: :test, port: 2526, tls: :required}])
+    restart_app()
+
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+
+    send_line(socket, "EHLO client.example.com")
+    read_multiline(socket, "250")
+
+    send_line(socket, "MAIL FROM:<sender@example.com>")
+    assert_recv(socket, "530")
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+
+    Application.put_env(:incoming, :policies, [])
+    Application.put_env(:incoming, :listeners, [%{name: :test, port: 2526, tls: :disabled}])
+    restart_app()
+  end
+
   defp send_line(socket, line) do
     :ok = :gen_tcp.send(socket, line <> "\r\n")
   end

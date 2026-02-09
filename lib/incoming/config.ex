@@ -5,6 +5,7 @@ defmodule Incoming.Config do
     name: :default,
     port: 2525,
     tls: :disabled,
+    tls_opts: [],
     max_connections: 1_000
   }
 

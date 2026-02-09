@@ -7,15 +7,23 @@ defmodule Incoming.Listener do
     domain = Map.get(listener, :domain, smtp_domain())
     max_connections = Map.get(listener, :max_connections, 1_000)
     num_acceptors = Map.get(listener, :num_acceptors, 10)
+    tls = Map.get(listener, :tls, :disabled)
+    tls_opts = Map.get(listener, :tls_opts, [])
 
-    session_opts = [
-      callbackoptions: [
-        queue: Incoming.Config.queue_module(),
-        queue_opts: Incoming.Config.queue_opts(),
-        max_message_size: Keyword.get(Incoming.Config.session_opts(), :max_message_size),
-        max_recipients: Keyword.get(Incoming.Config.session_opts(), :max_recipients)
-      ]
+    callback_opts = [
+      queue: Incoming.Config.queue_module(),
+      queue_opts: Incoming.Config.queue_opts(),
+      max_message_size: Keyword.get(Incoming.Config.session_opts(), :max_message_size),
+      max_recipients: Keyword.get(Incoming.Config.session_opts(), :max_recipients),
+      tls_mode: tls,
+      tls_opts: tls_opts
     ]
+
+    session_opts =
+      [
+        callbackoptions: callback_opts
+      ]
+      |> maybe_add_tls_options(tls_opts)
 
     opts = [
       {:domain, to_charlist(domain)},
@@ -30,4 +38,7 @@ defmodule Incoming.Listener do
   defp smtp_domain do
     Application.get_env(:incoming, :domain, "localhost")
   end
+
+  defp maybe_add_tls_options(opts, []), do: opts
+  defp maybe_add_tls_options(opts, tls_opts), do: Keyword.put(opts, :tls_options, tls_opts)
 end

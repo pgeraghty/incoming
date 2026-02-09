@@ -1621,6 +1621,45 @@ defmodule IncomingTest do
     restart_app()
   end
 
+  test "telemetry emits adapter exception reason", %{tmp: tmp} do
+    id = "incoming-test-delivery-exception-#{System.unique_integer([:positive])}"
+    parent = self()
+
+    :telemetry.attach(
+      id,
+      [:incoming, :delivery, :result],
+      &IncomingTest.TelemetryHandler.handle/4,
+      parent
+    )
+
+    Application.put_env(:incoming, :delivery, IncomingTest.DummyAdapter)
+
+    Application.put_env(:incoming, :delivery_opts,
+      workers: 1,
+      poll_interval: 10,
+      max_attempts: 1,
+      base_backoff: 1,
+      max_backoff: 1
+    )
+
+    restart_app()
+
+    IncomingTest.DummyAdapter.set_mode(:raise)
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+    {:ok, _message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+
+    assert_receive {:telemetry, [:incoming, :delivery, :result], _meas, meta}, 1_000
+    assert meta.outcome == :reject
+    assert match?({:max_attempts, {:exception, _, _}}, meta.reason)
+
+    :telemetry.detach(id)
+    Application.put_env(:incoming, :delivery, nil)
+    Application.put_env(:incoming, :delivery_opts, workers: 1, poll_interval: 1_000)
+    restart_app()
+  end
+
   test "delivery telemetry reason matches adapter", %{tmp: tmp} do
     id = "incoming-test-delivery-reason-#{System.unique_integer([:positive])}"
     parent = self()

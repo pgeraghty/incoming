@@ -261,6 +261,47 @@ defmodule IncomingTest do
     assert File.ls!(Path.join(tmp, "committed")) == []
   end
 
+  test "malformed MAIL syntax is rejected and does not enqueue", %{tmp: tmp} do
+    Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
+    restart_app()
+
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+
+    send_line(socket, "EHLO client.example.com")
+    read_multiline(socket, "250")
+
+    send_line(socket, "MAIL sender@example.com")
+    assert_recv(socket, "501")
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+
+    assert File.ls!(Path.join(tmp, "committed")) == []
+  end
+
+  test "malformed RCPT syntax is rejected and does not enqueue", %{tmp: tmp} do
+    Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
+    restart_app()
+
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+
+    send_line(socket, "EHLO client.example.com")
+    read_multiline(socket, "250")
+
+    send_line(socket, "MAIL FROM:<sender@example.com>")
+    assert_recv(socket, "250")
+
+    send_line(socket, "RCPT rcpt@example.com")
+    assert_recv(socket, "501")
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+
+    assert File.ls!(Path.join(tmp, "committed")) == []
+  end
+
   test "commands sent during DATA are treated as message body", %{tmp: tmp} do
     Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
     restart_app()

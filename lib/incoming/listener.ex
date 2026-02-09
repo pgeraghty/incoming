@@ -5,6 +5,8 @@ defmodule Incoming.Listener do
     name = Map.fetch!(listener, :name)
     port = Map.get(listener, :port, 2525)
     domain = Map.get(listener, :domain, smtp_domain())
+    max_connections = Map.get(listener, :max_connections, 1_000)
+    num_acceptors = Map.get(listener, :num_acceptors, 10)
 
     session_opts = [
       callbackoptions: [
@@ -18,7 +20,8 @@ defmodule Incoming.Listener do
     opts = [
       {:domain, to_charlist(domain)},
       {:port, port},
-      {:sessionoptions, session_opts}
+      {:sessionoptions, session_opts},
+      {:ranch_opts, %{max_connections: max_connections, num_acceptors: num_acceptors}}
     ]
 
     :gen_smtp_server.child_spec(name, Incoming.Session, opts)

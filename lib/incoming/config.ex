@@ -4,7 +4,8 @@ defmodule Incoming.Config do
   @default_listener %{
     name: :default,
     port: 2525,
-    tls: :disabled
+    tls: :disabled,
+    max_connections: 1_000
   }
 
   @default_queue_opts [

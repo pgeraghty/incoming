@@ -75,11 +75,17 @@ Retries move messages back to `committed/`. Rejects move to `dead/`.
 Events emitted:
 
 - `[:incoming, :message, :queued]` measurements: `%{count: 1}`, metadata: `%{id, size, queue_depth}`
+- `[:incoming, :message, :enqueue_error]` measurements: `%{count: 1}`, metadata: `%{id, reason}` (may include `attempted_size`)
 - `[:incoming, :delivery, :result]` measurements: `%{count: 1}`, metadata: `%{id, outcome, reason}`
 - `[:incoming, :session, :connect]` measurements: `%{count: 1}`, metadata: `%{peer}`
 - `[:incoming, :session, :accepted]` measurements: `%{count: 1}`, metadata: `%{id}`
 - `[:incoming, :session, :rejected]` measurements: `%{count: 1}`, metadata: `%{reason}`
 - `[:incoming, :queue, :depth]` measurements: `%{count}`, metadata: `%{}`
+
+## SMTP Behavior Notes
+
+- Command ordering is enforced: `RCPT` requires a prior `MAIL`, and `DATA` requires at least one `RCPT` (otherwise `503 Bad sequence of commands`).
+- After `DATA` completes, the envelope is reset so the next transaction must start with a new `MAIL`.
 
 ## Delivery Adapter (Early)
 

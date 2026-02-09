@@ -1516,6 +1516,20 @@ defmodule IncomingTest do
     restart_app()
   end
 
+  test "delivery disabled leaves queue untouched", %{tmp: tmp} do
+    Application.put_env(:incoming, :delivery, nil)
+    Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
+    restart_app()
+
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+    {:ok, _message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+
+    Process.sleep(50)
+    assert Incoming.Queue.Disk.depth() == 1
+  end
+
   test "delivery reject clears attempt tracking", %{tmp: tmp} do
     Application.put_env(:incoming, :delivery, IncomingTest.DummyAdapter)
     Application.put_env(:incoming, :delivery_opts, workers: 1, poll_interval: 10)

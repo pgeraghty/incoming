@@ -245,6 +245,29 @@ defmodule IncomingTest do
     restart_app()
   end
 
+  test "size extension does not override actual limit", %{} do
+    Application.put_env(:incoming, :session_opts, max_message_size: 10, max_recipients: 100)
+    restart_app()
+
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+    send_line(socket, "EHLO client.example.com")
+    read_multiline(socket, "250")
+    send_line(socket, "MAIL FROM:<sender@example.com>")
+    assert_recv(socket, "250")
+    send_line(socket, "RCPT TO:<rcpt@example.com>")
+    assert_recv(socket, "250")
+    send_line(socket, "DATA")
+    assert_recv(socket, "354")
+    :ok = :gen_tcp.send(socket, "Subject: Test\r\n\r\nBody body body\r\n.\r\n")
+    assert_recv(socket, "552")
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+
+    Application.put_env(:incoming, :session_opts, max_message_size: 10 * 1024 * 1024, max_recipients: 100)
+    restart_app()
+  end
+
   test "size limit policy rejects when max size zero", %{} do
     Application.put_env(:incoming, :session_opts, max_message_size: 0, max_recipients: 100)
     Application.put_env(:incoming, :policies, [Incoming.Policy.SizeLimit])
@@ -321,6 +344,44 @@ defmodule IncomingTest do
     {output, _status} = System.cmd("bash", ["-lc", cmd])
     assert output =~ "250 SMTPUTF8"
 
+    Application.put_env(:incoming, :listeners, [%{name: :test, port: 2526, tls: :disabled}])
+    restart_app()
+  end
+
+  test "tls required policy enforces starttls across connections", %{} do
+    Application.put_env(:incoming, :policies, [Incoming.Policy.TlsRequired])
+    Application.put_env(:incoming, :listeners, [
+      %{
+        name: :test,
+        port: 2526,
+        tls: :required,
+        tls_opts: [
+          certfile: "test/fixtures/test-cert.pem",
+          keyfile: "test/fixtures/test-key.pem"
+        ]
+      }
+    ])
+    restart_app()
+
+    {:ok, socket1} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket1, "220")
+    send_line(socket1, "EHLO client.example.com")
+    read_multiline(socket1, "250")
+    send_line(socket1, "MAIL FROM:<sender@example.com>")
+    assert_recv(socket1, "530")
+    send_line(socket1, "QUIT")
+    assert_recv(socket1, "221")
+
+    {:ok, socket2} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket2, "220")
+    send_line(socket2, "EHLO client.example.com")
+    read_multiline(socket2, "250")
+    send_line(socket2, "MAIL FROM:<sender@example.com>")
+    assert_recv(socket2, "530")
+    send_line(socket2, "QUIT")
+    assert_recv(socket2, "221")
+
+    Application.put_env(:incoming, :policies, [])
     Application.put_env(:incoming, :listeners, [%{name: :test, port: 2526, tls: :disabled}])
     restart_app()
   end
@@ -460,6 +521,21 @@ defmodule IncomingTest do
 
     assert {:ok, loaded} = Incoming.Queue.Disk.dequeue()
     assert %DateTime{} = loaded.received_at
+  end
+
+  test "queue defaults rcpt_to to empty list when missing", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    File.write!(
+      Path.join([tmp, "committed", message.id, "meta.json"]),
+      Jason.encode!(%{"mail_from" => "sender@example.com", "received_at" => DateTime.utc_now() |> DateTime.to_iso8601()})
+    )
+
+    assert {:ok, loaded} = Incoming.Queue.Disk.dequeue()
+    assert loaded.rcpt_to == []
   end
 
   test "queue recover handles stray processing entries", %{tmp: tmp} do

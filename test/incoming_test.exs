@@ -602,6 +602,33 @@ defmodule IncomingTest do
     restart_app()
   end
 
+  test "delivery retry stops after max_attempts", %{tmp: tmp} do
+    Application.put_env(:incoming, :delivery, IncomingTest.DummyAdapter)
+    Application.put_env(:incoming, :delivery_opts,
+      workers: 1,
+      poll_interval: 10,
+      max_attempts: 1,
+      base_backoff: 1,
+      max_backoff: 1
+    )
+    restart_app()
+
+    IncomingTest.DummyAdapter.set_mode(:retry)
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+
+    wait_until(fn -> File.exists?(Path.join([tmp, "dead", message.id])) end)
+    dead_json = Path.join([tmp, "dead", message.id, "dead.json"])
+    assert {:ok, payload} = File.read(dead_json)
+    assert payload =~ "max_attempts"
+
+    Application.put_env(:incoming, :delivery, nil)
+    Application.put_env(:incoming, :delivery_opts, workers: 1, poll_interval: 1_000)
+    restart_app()
+  end
+
   defp send_line(socket, line) do
     :ok = :gen_tcp.send(socket, line <> "\r\n")
   end

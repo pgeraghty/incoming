@@ -92,6 +92,19 @@ Return values:
 - `{:retry, reason}` -> message requeued with backoff
 - `{:reject, reason}` -> message moved to dead-letter
 
+Delivery options (defaults shown):
+
+```elixir
+config :incoming,
+  delivery_opts: [
+    workers: 1,
+    poll_interval: 1_000,
+    max_attempts: 5,
+    base_backoff: 1_000,
+    max_backoff: 5_000
+  ]
+```
+
 ## Limitations
 
 - SMTP DATA is fully buffered in memory by `gen_smtp` before we write to disk.

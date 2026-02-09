@@ -44,6 +44,12 @@ defmodule Incoming.Config do
   end
 
   def delivery_opts do
-    Application.get_env(:incoming, :delivery_opts, workers: 1, poll_interval: 1_000)
+    Application.get_env(:incoming, :delivery_opts,
+      workers: 1,
+      poll_interval: 1_000,
+      max_attempts: 5,
+      base_backoff: 1_000,
+      max_backoff: 5_000
+    )
   end
 end

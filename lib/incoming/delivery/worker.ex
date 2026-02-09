@@ -10,7 +10,16 @@ defmodule Incoming.Delivery.Worker do
   @impl true
   def init(opts) do
     interval = Keyword.get(opts, :poll_interval, 1_000)
-    state = %{interval: interval, attempts: %{}}
+    max_attempts = Keyword.get(opts, :max_attempts, 5)
+    base_backoff = Keyword.get(opts, :base_backoff, 1_000)
+    max_backoff = Keyword.get(opts, :max_backoff, 5_000)
+    state = %{
+      interval: interval,
+      attempts: %{},
+      max_attempts: max_attempts,
+      base_backoff: base_backoff,
+      max_backoff: max_backoff
+    }
     schedule_tick(0)
     {:ok, state}
   end
@@ -46,11 +55,18 @@ defmodule Incoming.Delivery.Worker do
 
   defp handle_result(queue, %Incoming.Message{id: id}, {:retry, reason}, state) do
     attempt = Map.get(state.attempts, id, 0) + 1
-    emit(:retry, id, reason)
-    queue.nack(id, :retry, reason)
-    backoff = min(1_000 * attempt, 5_000)
-    Process.sleep(backoff)
-    %{state | attempts: Map.put(state.attempts, id, attempt)}
+
+    if attempt >= state.max_attempts do
+      emit(:reject, id, {:max_attempts, reason})
+      queue.nack(id, :reject, {:max_attempts, reason})
+      %{state | attempts: Map.delete(state.attempts, id)}
+    else
+      emit(:retry, id, reason)
+      queue.nack(id, :retry, reason)
+      backoff = backoff_for(attempt, state.base_backoff, state.max_backoff)
+      Process.sleep(backoff)
+      %{state | attempts: Map.put(state.attempts, id, attempt)}
+    end
   end
 
   defp handle_result(queue, %Incoming.Message{id: id}, {:reject, reason}, state) do
@@ -67,6 +83,11 @@ defmodule Incoming.Delivery.Worker do
       outcome: outcome,
       reason: reason
     })
+  end
+
+  defp backoff_for(attempt, base, max_backoff) do
+    backoff = trunc(base * :math.pow(2, attempt - 1))
+    min(backoff, max_backoff)
   end
 
   defp schedule_tick(delay) do

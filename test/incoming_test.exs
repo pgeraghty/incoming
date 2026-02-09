@@ -820,6 +820,35 @@ defmodule IncomingTest do
     assert Incoming.Queue.Disk.depth() == 0
   end
 
+  test "queue depth ignores processing and dead", %{tmp: tmp} do
+    committed1 = Path.join([tmp, "committed", "a"])
+    committed2 = Path.join([tmp, "committed", "b"])
+    processing = Path.join([tmp, "processing", "c"])
+    dead = Path.join([tmp, "dead", "d"])
+
+    File.mkdir_p!(committed1)
+    File.mkdir_p!(committed2)
+    File.mkdir_p!(processing)
+    File.mkdir_p!(dead)
+
+    assert Incoming.Queue.Disk.depth() == 2
+  end
+
+  test "queue dequeue returns smallest id first", %{tmp: tmp} do
+    for id <- ["a", "b"] do
+      base = Path.join([tmp, "committed", id])
+      File.mkdir_p!(base)
+      File.write!(Path.join(base, "raw.eml"), "Subject: Test\r\n\r\nBody\r\n")
+      File.write!(
+        Path.join(base, "meta.json"),
+        Jason.encode!(%{id: id, mail_from: "from@example.com", rcpt_to: ["to@example.com"], received_at: DateTime.utc_now() |> DateTime.to_iso8601()})
+      )
+    end
+
+    assert {:ok, message} = Incoming.Queue.Disk.dequeue()
+    assert message.id == "a"
+  end
+
   test "dead letter metadata includes reason and timestamp", %{tmp: tmp} do
     from = "sender@example.com"
     to = ["rcpt@example.com"]

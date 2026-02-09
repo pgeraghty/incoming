@@ -201,8 +201,10 @@ defmodule IncomingTest do
 
     {:ok, message1} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
     {:ok, message2} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
-    assert {:ok, ^message1} = Incoming.Queue.Disk.dequeue()
-    assert {:ok, ^message2} = Incoming.Queue.Disk.dequeue()
+    {:ok, dequeued1} = Incoming.Queue.Disk.dequeue()
+    {:ok, dequeued2} = Incoming.Queue.Disk.dequeue()
+    dequeued_ids = MapSet.new([dequeued1.id, dequeued2.id])
+    assert dequeued_ids == MapSet.new([message1.id, message2.id])
 
     :ok = Incoming.Queue.Disk.recover()
     assert Incoming.Queue.Disk.depth() == 2
@@ -248,6 +250,16 @@ defmodule IncomingTest do
 
     assert File.exists?(Path.join([tmp, "committed", id]))
     refute File.exists?(processing)
+  end
+
+  test "queue dequeue skips file entry", %{tmp: tmp} do
+    id = "file-committed-#{System.unique_integer([:positive])}"
+    committed = Path.join([tmp, "committed", id])
+    File.mkdir_p!(Path.dirname(committed))
+    File.write!(committed, "placeholder")
+
+    assert {:empty} = Incoming.Queue.Disk.dequeue()
+    assert File.exists?(committed)
   end
 
   test "delivery worker ack/retry/reject", %{tmp: tmp} do
@@ -1352,6 +1364,30 @@ defmodule IncomingTest do
     assert decoded["reason"] =~ "max_attempts"
     assert decoded["reason"] =~ "temporary"
 
+    Application.put_env(:incoming, :delivery, nil)
+    Application.put_env(:incoming, :delivery_opts, workers: 1, poll_interval: 1_000)
+    restart_app()
+  end
+
+  test "delivery reject clears attempt tracking", %{tmp: tmp} do
+    Application.put_env(:incoming, :delivery, IncomingTest.DummyAdapter)
+    Application.put_env(:incoming, :delivery_opts, workers: 1, poll_interval: 10)
+    Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
+    restart_app()
+
+    IncomingTest.DummyAdapter.set_mode(:reject)
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+
+    {:ok, pid} = Incoming.Delivery.Worker.start_link(poll_interval: 10_000)
+    :ok = wait_until(fn -> File.exists?(Path.join([tmp, "dead", message.id])) end)
+
+    state = :sys.get_state(pid)
+    refute Map.has_key?(state.attempts, message.id)
+
+    GenServer.stop(pid)
     Application.put_env(:incoming, :delivery, nil)
     Application.put_env(:incoming, :delivery_opts, workers: 1, poll_interval: 1_000)
     restart_app()

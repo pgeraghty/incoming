@@ -42,6 +42,16 @@ defmodule IncomingTest do
     assert headers["x-test"] == "two"
   end
 
+  test "message headers trim whitespace", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject:   Trim Me  \r\n\r\nBody\r\n"
+
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    headers = Incoming.Message.headers(message)
+    assert headers["subject"] == "Trim Me"
+  end
+
   test "message headers ignore malformed lines", %{tmp: tmp} do
     from = "sender@example.com"
     to = ["rcpt@example.com"]
@@ -119,6 +129,19 @@ defmodule IncomingTest do
 
     committed = Path.join([tmp, "committed", message.id])
     assert File.exists?(committed)
+  end
+
+  test "queue depth accounts for retry", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+
+    assert Incoming.Queue.Disk.depth() == 0
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    assert Incoming.Queue.Disk.depth() == 1
+    assert {:ok, ^message} = Incoming.Queue.Disk.dequeue()
+    :ok = Incoming.Queue.Disk.nack(message.id, :retry, :temporary)
+    assert Incoming.Queue.Disk.depth() == 1
   end
 
   test "queue recover moves processing back to committed", %{tmp: tmp} do

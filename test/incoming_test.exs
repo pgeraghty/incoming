@@ -32,6 +32,17 @@ defmodule IncomingTest do
     assert headers["subject"] == "Final"
   end
 
+  test "message headers ignore malformed lines", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "NotAHeaderLine\r\nSubject: Ok\r\n\r\nBody\r\n"
+
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    headers = Incoming.Message.headers(message)
+    assert headers["subject"] == "Ok"
+    refute Map.has_key?(headers, "notaheadline")
+  end
+
   test "accepts smtp session and queues message", %{tmp: tmp} do
     {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
 
@@ -732,6 +743,20 @@ defmodule IncomingTest do
     assert_recv(socket, "220")
 
     send_line(socket, "HELP")
+    assert_recv(socket, "500")
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+  end
+
+  test "vrfy and expn are disabled", %{} do
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+
+    send_line(socket, "VRFY user@example.com")
+    assert_recv(socket, "252")
+
+    send_line(socket, "EXPN list")
     assert_recv(socket, "500")
 
     send_line(socket, "QUIT")

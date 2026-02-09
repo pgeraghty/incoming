@@ -1113,6 +1113,37 @@ defmodule IncomingTest do
     assert_recv(socket, "221")
   end
 
+  test "rset allows a new transaction", %{} do
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+
+    send_line(socket, "EHLO client.example.com")
+    read_multiline(socket, "250")
+
+    send_line(socket, "MAIL FROM:<sender@example.com>")
+    assert_recv(socket, "250")
+
+    send_line(socket, "RCPT TO:<rcpt@example.com>")
+    assert_recv(socket, "250")
+
+    send_line(socket, "RSET")
+    assert_recv(socket, "250")
+
+    send_line(socket, "MAIL FROM:<sender@example.com>")
+    assert_recv(socket, "250")
+
+    send_line(socket, "RCPT TO:<rcpt@example.com>")
+    assert_recv(socket, "250")
+
+    send_line(socket, "DATA")
+    assert_recv(socket, "354")
+    :ok = :gen_tcp.send(socket, "Subject: Test\r\n\r\nBody\r\n.\r\n")
+    assert_recv(socket, "250")
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+  end
+
   test "rset after data command still rejects without mail", %{} do
     {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
     assert_recv(socket, "220")

@@ -188,6 +188,28 @@ defmodule IncomingTest do
     end
   end
 
+  test "starttls handshake works", %{} do
+    Application.put_env(:incoming, :listeners, [
+      %{
+        name: :test,
+        port: 2526,
+        tls: :optional,
+        tls_opts: [
+          certfile: "test/fixtures/test-cert.pem",
+          keyfile: "test/fixtures/test-key.pem"
+        ]
+      }
+    ])
+    restart_app()
+
+    cmd = "printf 'EHLO test\\nSTARTTLS\\nQUIT\\n' | openssl s_client -starttls smtp -connect 127.0.0.1:2526 -quiet -servername localhost"
+    {output, _status} = System.cmd("bash", ["-lc", cmd])
+    assert output =~ "250 SMTPUTF8"
+
+    Application.put_env(:incoming, :listeners, [%{name: :test, port: 2526, tls: :disabled}])
+    restart_app()
+  end
+
   defp send_line(socket, line) do
     :ok = :gen_tcp.send(socket, line <> "\r\n")
   end

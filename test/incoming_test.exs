@@ -108,6 +108,19 @@ defmodule IncomingTest do
     assert File.exists?(Path.join([dead, message.id, "dead.json"]))
   end
 
+  test "queue nack retry requeues", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    assert {:ok, ^message} = Incoming.Queue.Disk.dequeue()
+    :ok = Incoming.Queue.Disk.nack(message.id, :retry, :temporary)
+
+    committed = Path.join([tmp, "committed", message.id])
+    assert File.exists?(committed)
+  end
+
   test "queue recover moves processing back to committed", %{tmp: tmp} do
     from = "sender@example.com"
     to = ["rcpt@example.com"]
@@ -950,6 +963,36 @@ defmodule IncomingTest do
     assert_receive {:telemetry, [:incoming, :delivery, :result], _meas, meta1}, 1_000
     assert meta1.outcome in [:retry, :reject]
     assert meta1.reason != nil
+
+    :telemetry.detach(id)
+    Application.put_env(:incoming, :delivery, nil)
+    Application.put_env(:incoming, :delivery_opts, workers: 1, poll_interval: 1_000)
+    restart_app()
+  end
+
+  test "delivery telemetry reason matches adapter", %{tmp: tmp} do
+    id = "incoming-test-delivery-reason-#{System.unique_integer([:positive])}"
+    parent = self()
+
+    :telemetry.attach(
+      id,
+      [:incoming, :delivery, :result],
+      &IncomingTest.TelemetryHandler.handle/4,
+      parent
+    )
+
+    Application.put_env(:incoming, :delivery, IncomingTest.DummyAdapter)
+    Application.put_env(:incoming, :delivery_opts, workers: 1, poll_interval: 10)
+    restart_app()
+
+    IncomingTest.DummyAdapter.set_mode(:retry)
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+    {:ok, _message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+
+    assert_receive {:telemetry, [:incoming, :delivery, :result], _meas, meta}, 1_000
+    assert meta.reason == :temporary
 
     :telemetry.detach(id)
     Application.put_env(:incoming, :delivery, nil)

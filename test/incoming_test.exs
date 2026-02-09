@@ -52,6 +52,16 @@ defmodule IncomingTest do
     assert headers["subject"] == "Trim Me"
   end
 
+  test "message headers preserve utf8 values", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Привет мир\r\n\r\nBody\r\n"
+
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    headers = Incoming.Message.headers(message)
+    assert headers["subject"] == "Привет мир"
+  end
+
   test "message headers lower-case keys and trim", %{tmp: tmp} do
     from = "sender@example.com"
     to = ["rcpt@example.com"]
@@ -182,6 +192,20 @@ defmodule IncomingTest do
     committed = Path.join(tmp, "committed")
     assert File.exists?(Path.join(committed, message.id))
     assert Incoming.Queue.Disk.depth() == 1
+  end
+
+  test "queue recover handles multiple processing entries", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+
+    {:ok, message1} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    {:ok, message2} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    assert {:ok, ^message1} = Incoming.Queue.Disk.dequeue()
+    assert {:ok, ^message2} = Incoming.Queue.Disk.dequeue()
+
+    :ok = Incoming.Queue.Disk.recover()
+    assert Incoming.Queue.Disk.depth() == 2
   end
 
   test "delivery worker ack/retry/reject", %{tmp: tmp} do

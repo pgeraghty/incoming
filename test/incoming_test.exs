@@ -316,6 +316,27 @@ defmodule IncomingTest do
     end
   end
 
+  test "tls config rejects invalid mode", %{} do
+    assert_raise ArgumentError, fn ->
+      Incoming.Listener.child_spec(%{name: :bad, port: 2527, tls: :bogus, tls_opts: []})
+    end
+  end
+
+  test "tls config rejects missing cert file", %{tmp: tmp} do
+    keyfile = Path.join(tmp, "test.key")
+    File.write!(keyfile, "key")
+    certfile = Path.join(tmp, "missing.pem")
+
+    assert_raise ArgumentError, fn ->
+      Incoming.Listener.child_spec(%{
+        name: :bad,
+        port: 2527,
+        tls: :required,
+        tls_opts: [certfile: certfile, keyfile: keyfile]
+      })
+    end
+  end
+
   test "invalid listener port raises", %{} do
     assert_raise ArgumentError, fn ->
       Incoming.Listener.child_spec(%{name: :bad, port: -1, tls: :disabled})
@@ -1187,6 +1208,37 @@ defmodule IncomingTest do
     Application.put_env(:incoming, :delivery, nil)
     Application.put_env(:incoming, :delivery_opts, workers: 1, poll_interval: 1_000)
     restart_app()
+  end
+
+  test "delivery worker tracks retry attempts", %{tmp: tmp} do
+    Application.put_env(:incoming, :delivery, IncomingTest.DummyAdapter)
+    Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
+
+    IncomingTest.DummyAdapter.set_mode(:retry)
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+
+    {:ok, pid} =
+      Incoming.Delivery.Worker.start_link(
+        poll_interval: 10_000,
+        max_attempts: 3,
+        base_backoff: 1,
+        max_backoff: 1
+      )
+
+    :ok =
+      wait_until(fn ->
+        state = :sys.get_state(pid)
+        Map.has_key?(state.attempts, message.id)
+      end)
+
+    state = :sys.get_state(pid)
+    assert state.attempts[message.id] == 1
+
+    GenServer.stop(pid)
+    Application.put_env(:incoming, :delivery, nil)
   end
 
   defp send_line(socket, line) do

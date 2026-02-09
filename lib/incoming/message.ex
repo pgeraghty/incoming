@@ -8,7 +8,8 @@ defmodule Incoming.Message do
             rcpt_to: [],
             received_at: nil,
             raw_path: nil,
-            meta_path: nil
+            meta_path: nil,
+            attempts: 0
 
   @type t :: %__MODULE__{
           id: String.t(),
@@ -16,7 +17,8 @@ defmodule Incoming.Message do
           rcpt_to: [binary()],
           received_at: DateTime.t(),
           raw_path: String.t(),
-          meta_path: String.t()
+          meta_path: String.t(),
+          attempts: non_neg_integer()
         }
 
   def headers(%__MODULE__{raw_path: path}) do

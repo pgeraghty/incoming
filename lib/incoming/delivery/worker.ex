@@ -16,7 +16,6 @@ defmodule Incoming.Delivery.Worker do
 
     state = %{
       interval: interval,
-      attempts: %{},
       max_attempts: max_attempts,
       base_backoff: base_backoff,
       max_backoff: max_backoff
@@ -52,29 +51,34 @@ defmodule Incoming.Delivery.Worker do
   defp handle_result(queue, %Incoming.Message{id: id}, :ok, state) do
     emit(:ok, id, nil)
     queue.ack(id)
-    %{state | attempts: Map.delete(state.attempts, id)}
+    state
   end
 
-  defp handle_result(queue, %Incoming.Message{id: id}, {:retry, reason}, state) do
-    attempt = Map.get(state.attempts, id, 0) + 1
+  defp handle_result(
+         queue,
+         %Incoming.Message{id: id, attempts: attempts},
+         {:retry, reason},
+         state
+       ) do
+    attempt = (attempts || 0) + 1
 
     if attempt >= state.max_attempts do
       emit(:reject, id, {:max_attempts, reason})
       queue.nack(id, :reject, {:max_attempts, reason})
-      %{state | attempts: Map.delete(state.attempts, id)}
+      state
     else
       emit(:retry, id, reason)
       queue.nack(id, :retry, reason)
       backoff = backoff_for(attempt, state.base_backoff, state.max_backoff)
       Process.sleep(backoff)
-      %{state | attempts: Map.put(state.attempts, id, attempt)}
+      state
     end
   end
 
   defp handle_result(queue, %Incoming.Message{id: id}, {:reject, reason}, state) do
     emit(:reject, id, reason)
     queue.nack(id, :reject, reason)
-    %{state | attempts: Map.delete(state.attempts, id)}
+    state
   end
 
   defp handle_result(_queue, _message, _result, state), do: state

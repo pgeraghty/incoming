@@ -1725,33 +1725,34 @@ defmodule IncomingTest do
     assert Incoming.Queue.Disk.depth() == 1
   end
 
-  test "delivery reject clears attempt tracking", %{tmp: tmp} do
-    Application.put_env(:incoming, :delivery, IncomingTest.DummyAdapter)
-    Application.put_env(:incoming, :delivery_opts, workers: 1, poll_interval: 10)
-    Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
-    restart_app()
-
-    IncomingTest.DummyAdapter.set_mode(:reject)
+  test "queue nack retry persists attempt count in metadata", %{tmp: tmp} do
     from = "sender@example.com"
     to = ["rcpt@example.com"]
     data = "Subject: Test\r\n\r\nBody\r\n"
+
     {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    assert {:ok, dequeued} = Incoming.Queue.Disk.dequeue()
+    assert dequeued.id == message.id
+    assert dequeued.attempts == 0
 
-    {:ok, pid} = Incoming.Delivery.Worker.start_link(poll_interval: 10_000)
-    :ok = wait_until(fn -> File.exists?(Path.join([tmp, "dead", message.id])) end)
+    :ok = Incoming.Queue.Disk.nack(message.id, :retry, :temporary)
 
-    state = :sys.get_state(pid)
-    refute Map.has_key?(state.attempts, message.id)
-
-    GenServer.stop(pid)
-    Application.put_env(:incoming, :delivery, nil)
-    Application.put_env(:incoming, :delivery_opts, workers: 1, poll_interval: 1_000)
-    restart_app()
+    meta_path = Path.join([tmp, "committed", message.id, "meta.json"])
+    decoded = Jason.decode!(File.read!(meta_path))
+    assert decoded["attempts"] == 1
   end
 
-  test "delivery worker tracks retry attempts", %{tmp: tmp} do
+  test "delivery retry attempts persist across restart", %{tmp: tmp} do
     Application.put_env(:incoming, :delivery, IncomingTest.DummyAdapter)
-    Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
+
+    Application.put_env(:incoming, :delivery_opts,
+      workers: 1,
+      # Long interval gives us time to restart between attempts.
+      poll_interval: 10_000,
+      max_attempts: 2,
+      base_backoff: 1,
+      max_backoff: 1
+    )
 
     IncomingTest.DummyAdapter.set_mode(:retry)
     from = "sender@example.com"
@@ -1759,25 +1760,26 @@ defmodule IncomingTest do
     data = "Subject: Test\r\n\r\nBody\r\n"
     {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
 
-    {:ok, pid} =
-      Incoming.Delivery.Worker.start_link(
-        poll_interval: 10_000,
-        max_attempts: 3,
-        base_backoff: 1,
-        max_backoff: 1
-      )
+    # Start delivery after the message exists, so the worker's first immediate tick picks it up.
+    restart_app()
+
+    meta_path = Path.join([tmp, "committed", message.id, "meta.json"])
 
     :ok =
-      wait_until(fn ->
-        state = :sys.get_state(pid)
-        Map.has_key?(state.attempts, message.id)
-      end)
+      wait_until(
+        fn ->
+          File.exists?(meta_path) and Jason.decode!(File.read!(meta_path))["attempts"] == 1
+        end,
+        200
+      )
 
-    state = :sys.get_state(pid)
-    assert state.attempts[message.id] == 1
+    restart_app()
 
-    GenServer.stop(pid)
+    :ok = wait_until(fn -> File.exists?(Path.join([tmp, "dead", message.id])) end)
+
     Application.put_env(:incoming, :delivery, nil)
+    Application.put_env(:incoming, :delivery_opts, workers: 1, poll_interval: 1_000)
+    restart_app()
   end
 
   defp send_line(socket, line) do

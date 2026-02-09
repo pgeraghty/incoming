@@ -44,8 +44,8 @@ defmodule Incoming.Delivery.Worker do
                 {:retry, {kind, reason}}
             end
 
-          new_state = handle_result(queue, message, result, state)
-          schedule_tick(new_state.interval)
+          {new_state, delay} = handle_result(queue, message, result, state)
+          schedule_tick(delay)
           {:noreply, new_state}
 
         {:empty} ->
@@ -61,7 +61,7 @@ defmodule Incoming.Delivery.Worker do
   defp handle_result(queue, %Incoming.Message{id: id}, :ok, state) do
     emit(:ok, id, nil)
     queue.ack(id)
-    state
+    {state, state.interval}
   end
 
   defp handle_result(
@@ -75,23 +75,22 @@ defmodule Incoming.Delivery.Worker do
     if attempt >= state.max_attempts do
       emit(:reject, id, {:max_attempts, reason})
       queue.nack(id, :reject, {:max_attempts, reason})
-      state
+      {state, state.interval}
     else
       emit(:retry, id, reason)
       queue.nack(id, :retry, reason)
       backoff = backoff_for(attempt, state.base_backoff, state.max_backoff)
-      Process.sleep(backoff)
-      state
+      {state, state.interval + backoff}
     end
   end
 
   defp handle_result(queue, %Incoming.Message{id: id}, {:reject, reason}, state) do
     emit(:reject, id, reason)
     queue.nack(id, :reject, reason)
-    state
+    {state, state.interval}
   end
 
-  defp handle_result(_queue, _message, _result, state), do: state
+  defp handle_result(_queue, _message, _result, state), do: {state, state.interval}
 
   defp emit(outcome, id, reason) do
     Incoming.Metrics.emit([:incoming, :delivery, :result], %{count: 1}, %{

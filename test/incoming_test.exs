@@ -1944,6 +1944,37 @@ defmodule IncomingTest do
     Application.put_env(:incoming, :delivery, nil)
   end
 
+  test "delivery worker does not block during retry backoff", %{tmp: tmp} do
+    Application.put_env(:incoming, :delivery, IncomingTest.DummyAdapter)
+    Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
+
+    IncomingTest.DummyAdapter.set_mode(:retry)
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+    {:ok, _message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+
+    {:ok, pid} =
+      Incoming.Delivery.Worker.start_link(
+        poll_interval: 10_000,
+        max_attempts: 3,
+        base_backoff: 500,
+        max_backoff: 500
+      )
+
+    # Old behavior slept inside the GenServer and would not respond promptly.
+    t =
+      Task.async(fn ->
+        :sys.get_state(pid)
+        :ok
+      end)
+
+    assert Task.yield(t, 100) == {:ok, :ok}
+
+    GenServer.stop(pid)
+    Application.put_env(:incoming, :delivery, nil)
+  end
+
   defp send_line(socket, line) do
     :ok = :gen_tcp.send(socket, line <> "\r\n")
   end

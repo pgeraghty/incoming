@@ -415,6 +415,18 @@ defmodule IncomingTest do
     # Message still dequeues based on metadata; raw file may be missing for consumers.
   end
 
+  test "queue dequeue skips entry with missing raw and meta", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    File.rm!(Path.join([tmp, "committed", message.id, "raw.eml"]))
+    File.rm!(Path.join([tmp, "committed", message.id, "meta.json"]))
+
+    assert {:empty} = Incoming.Queue.Disk.dequeue()
+  end
+
   test "queue recover handles stray processing entries", %{tmp: tmp} do
     processing = Path.join([tmp, "processing"])
     File.mkdir_p!(processing)
@@ -580,6 +592,64 @@ defmodule IncomingTest do
 
     send_line(socket, "QUIT")
     assert_recv(socket, "221")
+  end
+
+  test "invalid helo yields error", %{} do
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+
+    send_line(socket, "HELO")
+    assert_recv(socket, "501")
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+  end
+
+  test "invalid ehlo yields error", %{} do
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+
+    send_line(socket, "EHLO")
+    assert_recv(socket, "501")
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+  end
+
+  test "policy order preserves sequence", %{} do
+    IncomingTest.CapturePolicy.set_target(self())
+    Application.put_env(:incoming, :policies, [IncomingTest.CapturePolicy])
+    restart_app()
+
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+    send_line(socket, "EHLO client.example.com")
+    read_multiline(socket, "250")
+    send_line(socket, "MAIL FROM:<sender@example.com>")
+    assert_recv(socket, "250")
+    send_line(socket, "RCPT TO:<rcpt@example.com>")
+    assert_recv(socket, "250")
+    send_line(socket, "DATA")
+    assert_recv(socket, "354")
+    :ok = :gen_tcp.send(socket, "Subject: Test\r\n\r\nBody\r\n.\r\n")
+    assert_recv(socket, "250")
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+
+    phases = collect_phases([])
+    assert phases == [:connect, :helo, :mail_from, :rcpt_to, :data_start, :message_complete]
+
+    Application.put_env(:incoming, :policies, [])
+    restart_app()
+  end
+
+  defp collect_phases(acc, timeout \\ 100)
+  defp collect_phases(acc, timeout) do
+    receive do
+      {:policy_phase, phase, _ctx} -> collect_phases([phase | acc], timeout)
+    after
+      timeout -> Enum.reverse(acc)
+    end
   end
 
   test "invalid mail command yields error", %{} do

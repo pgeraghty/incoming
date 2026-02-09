@@ -343,6 +343,12 @@ defmodule IncomingTest do
     end
   end
 
+  test "missing listener port raises", %{} do
+    assert_raise ArgumentError, fn ->
+      Incoming.Listener.child_spec(%{name: :bad, tls: :disabled})
+    end
+  end
+
   test "size enforcement rejects large message", %{} do
     Application.put_env(:incoming, :session_opts, max_message_size: 10, max_recipients: 100)
     restart_app()
@@ -428,6 +434,12 @@ defmodule IncomingTest do
   test "queue path validation rejects empty path", %{} do
     assert_raise ArgumentError, fn ->
       Incoming.Validate.queue_opts!(path: "")
+    end
+  end
+
+  test "queue path validation rejects non-string", %{} do
+    assert_raise ArgumentError, fn ->
+      Incoming.Validate.queue_opts!(path: nil)
     end
   end
 

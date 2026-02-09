@@ -189,6 +189,28 @@ defmodule IncomingTest do
     end
   end
 
+  test "rate limiter rejects after threshold", %{} do
+    Application.put_env(:incoming, :policies, [Incoming.Policy.RateLimiter])
+    restart_app()
+
+    Application.put_env(:incoming, :rate_limit, 1)
+    for _ <- 1..1 do
+      {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+      :ok = :gen_tcp.close(socket)
+    end
+
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+    send_line(socket, "EHLO client.example.com")
+    read_multiline(socket, "250")
+    send_line(socket, "MAIL FROM:<sender@example.com>")
+    assert_recv(socket, "554")
+
+    Application.put_env(:incoming, :policies, [])
+    Application.put_env(:incoming, :rate_limit, 5)
+    restart_app()
+  end
+
   test "starttls handshake works", %{} do
     Application.put_env(:incoming, :listeners, [
       %{

@@ -36,7 +36,9 @@ defmodule Incoming.Session do
       :ok ->
         emit(:connect, %{peer: peer})
         {:ok, banner, state}
-      {:reject, code, message} -> {:stop, :policy_reject, "#{code} #{message}"}
+      {:reject, code, message} ->
+        emit(:rejected, %{reason: message})
+        {:stop, :policy_reject, "#{code} #{message}"}
     end
   end
 
@@ -100,17 +102,22 @@ defmodule Incoming.Session do
   def handle_DATA(from, to, data, state) do
     case policy_check(:data_start, state) do
       :ok ->
-        case state.queue.enqueue(from, to, data, state.queue_opts) do
-          {:ok, %Incoming.Message{id: id} = message} ->
-            _ = policy_check(:message_complete, state)
-            Incoming.Delivery.Dispatcher.dispatch(message)
-            emit(:accepted, %{id: id})
-            {:ok, "Ok: queued as <#{id}>", state}
+        if byte_size(data) > state.max_message_size do
+          emit(:rejected, %{reason: :message_too_large})
+          {:error, "552 Message too large", state}
+        else
+          case state.queue.enqueue(from, to, data, state.queue_opts) do
+            {:ok, %Incoming.Message{id: id} = message} ->
+              _ = policy_check(:message_complete, state)
+              Incoming.Delivery.Dispatcher.dispatch(message)
+              emit(:accepted, %{id: id})
+              {:ok, "Ok: queued as <#{id}>", state}
 
-          {:error, reason} ->
-            Logger.error("queue_error=#{inspect(reason)}")
-            emit(:rejected, %{reason: reason})
-            {:error, "451 Temporary failure", state}
+            {:error, reason} ->
+              Logger.error("queue_error=#{inspect(reason)}")
+              emit(:rejected, %{reason: reason})
+              {:error, "451 Temporary failure", state}
+          end
         end
 
       {:reject, code, message} ->

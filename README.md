@@ -40,9 +40,21 @@ config :incoming,
     Incoming.Policy.HelloRequired,
     Incoming.Policy.SizeLimit,
     Incoming.Policy.MaxRecipients,
-    Incoming.Policy.TlsRequired
+    Incoming.Policy.TlsRequired,
+    Incoming.Policy.RateLimiter
   ]
 ```
+
+## Queue Layout
+
+Messages are stored on disk in:
+
+- `committed/<id>/raw.eml`
+- `committed/<id>/meta.json`
+- `processing/<id>/` (in-flight delivery)
+- `dead/<id>/dead.json` (rejected)
+
+Retries move messages back to `committed/`. Rejects move to `dead/`.
 
 ## TLS (Early)
 

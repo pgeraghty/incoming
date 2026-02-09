@@ -476,6 +476,34 @@ defmodule IncomingTest do
     end
   end
 
+  test "tls config rejects invalid cert contents", %{tmp: tmp} do
+    certfile = Path.join(tmp, "bad-cert.pem")
+    File.write!(certfile, "not a pem")
+
+    assert_raise ArgumentError, fn ->
+      Incoming.Listener.child_spec(%{
+        name: :bad,
+        port: 2527,
+        tls: :required,
+        tls_opts: [certfile: certfile, keyfile: "test/fixtures/test-key.pem"]
+      })
+    end
+  end
+
+  test "tls config rejects invalid key contents", %{tmp: tmp} do
+    keyfile = Path.join(tmp, "bad-key.pem")
+    File.write!(keyfile, "not a pem")
+
+    assert_raise ArgumentError, fn ->
+      Incoming.Listener.child_spec(%{
+        name: :bad,
+        port: 2527,
+        tls: :required,
+        tls_opts: [certfile: "test/fixtures/test-cert.pem", keyfile: keyfile]
+      })
+    end
+  end
+
   test "invalid listener port raises", %{} do
     assert_raise ArgumentError, fn ->
       Incoming.Listener.child_spec(%{name: :bad, port: -1, tls: :disabled})

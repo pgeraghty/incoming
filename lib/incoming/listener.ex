@@ -57,11 +57,34 @@ defmodule Incoming.Listener do
         raise ArgumentError, "keyfile does not exist: #{keyfile}"
 
       true ->
+        validate_pem!(certfile, [:Certificate], "certfile")
+
+        validate_pem!(
+          keyfile,
+          [:RSAPrivateKey, :DSAPrivateKey, :ECPrivateKey, :PrivateKeyInfo],
+          "keyfile"
+        )
+
         :ok
     end
   end
 
   defp validate_tls!(mode, _opts), do: raise(ArgumentError, "invalid tls mode: #{inspect(mode)}")
+
+  defp validate_pem!(path, types, label) do
+    pem = File.read!(path)
+    entries = :public_key.pem_decode(pem)
+
+    if entries == [] do
+      raise ArgumentError, "#{label} is not valid PEM: #{path}"
+    end
+
+    if not Enum.any?(entries, fn {type, _data, _headers} -> type in types end) do
+      raise ArgumentError, "#{label} PEM did not contain expected entries: #{path}"
+    end
+
+    :ok
+  end
 
   defp maybe_add_tls_options(opts, _tls_opts, :disabled), do: opts
   defp maybe_add_tls_options(opts, tls_opts, _mode), do: Keyword.put(opts, :tls_options, tls_opts)

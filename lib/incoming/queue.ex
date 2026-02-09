@@ -12,7 +12,7 @@ defmodule Incoming.Queue do
 
   @callback dequeue() :: {:ok, Incoming.Message.t()} | {:empty}
   @callback ack(message_id :: String.t()) :: :ok
-  @callback nack(message_id :: String.t(), :retry | :reject) :: :ok
+  @callback nack(message_id :: String.t(), :retry | :reject, reason :: term()) :: :ok
   @callback depth() :: non_neg_integer()
   @callback recover() :: :ok
 end

@@ -89,9 +89,14 @@ defmodule Incoming.Queue.Disk do
       [id | _] ->
         from = Path.join(committed, id)
         to = Path.join(path, "processing")
-        {:ok, message} = load_message(from, id)
-        :ok = File.rename(from, Path.join(to, id))
-        {:ok, message}
+        case load_message(from, id) do
+          {:ok, message} ->
+            :ok = File.rename(from, Path.join(to, id))
+            {:ok, message}
+
+          _ ->
+            {:empty}
+        end
     end
   end
 
@@ -104,7 +109,7 @@ defmodule Incoming.Queue.Disk do
   end
 
   @impl true
-  def nack(message_id, action) do
+  def nack(message_id, action, reason \\ nil) do
     path = state_path()
     ensure_dirs(path)
     from = Path.join([path, "processing", message_id])
@@ -115,7 +120,9 @@ defmodule Incoming.Queue.Disk do
         :ok
 
       :reject ->
-        File.rename(from, Path.join([path, "dead", message_id]))
+        dead_dir = Path.join([path, "dead", message_id])
+        File.rename(from, dead_dir)
+        write_dead_reason(dead_dir, reason)
         :ok
     end
   end
@@ -158,6 +165,15 @@ defmodule Incoming.Queue.Disk do
     File.mkdir_p!(Path.join(path, "dead"))
   end
 
+  defp write_dead_reason(dir, reason) do
+    payload = %{
+      rejected_at: DateTime.utc_now() |> DateTime.to_iso8601(),
+      reason: inspect(reason)
+    }
+
+    File.write(Path.join(dir, "dead.json"), Jason.encode!(payload))
+  end
+
   defp load_message(dir, id) do
     meta_path = Path.join(dir, "meta.json")
     raw_path = Path.join(dir, "raw.eml")
@@ -175,6 +191,8 @@ defmodule Incoming.Queue.Disk do
          raw_path: raw_path,
          meta_path: meta_path
        }}
+    else
+      _ -> {:error, :invalid_metadata}
     end
   end
 

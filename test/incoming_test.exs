@@ -59,10 +59,11 @@ defmodule IncomingTest do
 
     {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
     assert {:ok, ^message} = Incoming.Queue.Disk.dequeue()
-    :ok = Incoming.Queue.Disk.nack(message.id, :reject)
+    :ok = Incoming.Queue.Disk.nack(message.id, :reject, :test_reason)
 
     dead = Path.join(tmp, "dead")
     assert File.exists?(Path.join(dead, message.id))
+    assert File.exists?(Path.join([dead, message.id, "dead.json"]))
   end
 
   test "queue recover moves processing back to committed", %{tmp: tmp} do

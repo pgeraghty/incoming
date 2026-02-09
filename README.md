@@ -30,6 +30,18 @@ end
 Incoming.hello()
 ```
 
+## Policies (Early)
+
+You can configure simple policies in `config.exs`:
+
+```elixir
+config :incoming,
+  policies: [
+    Incoming.Policy.HelloRequired,
+    Incoming.Policy.SizeLimit
+  ]
+```
+
 ## Feedback
 
 If you find problems or have suggestions, please open an issue and include:

@@ -11,7 +11,8 @@ defmodule Incoming.Session do
             queue_opts: [],
             max_message_size: 10 * 1024 * 1024,
             mail_from: nil,
-            rcpt_to: []
+            rcpt_to: [],
+            seen_helo: false
 
   @impl true
   def init(hostname, _session_count, peer, options) do
@@ -35,7 +36,7 @@ defmodule Incoming.Session do
   @impl true
   def handle_HELO(_hostname, state) do
     case policy_check(:helo, state) do
-      :ok -> {:ok, state.max_message_size, state}
+      :ok -> {:ok, state.max_message_size, %{state | seen_helo: true}}
       {:reject, code, message} -> {:error, "#{code} #{message}", state}
     end
   end
@@ -43,7 +44,7 @@ defmodule Incoming.Session do
   @impl true
   def handle_EHLO(_hostname, extensions, state) do
     case policy_check(:helo, state) do
-      :ok -> {:ok, size_extension(extensions, state.max_message_size), state}
+      :ok -> {:ok, size_extension(extensions, state.max_message_size), %{state | seen_helo: true}}
       {:reject, code, message} -> {:error, "#{code} #{message}", state}
     end
   end
@@ -154,7 +155,8 @@ defmodule Incoming.Session do
         peer: state.peer,
         mail_from: state.mail_from,
         rcpt_to: state.rcpt_to,
-        max_message_size: state.max_message_size
+        max_message_size: state.max_message_size,
+        seen_helo: state.seen_helo
       })
     end
   end

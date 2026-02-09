@@ -56,6 +56,16 @@ Messages are stored on disk in:
 
 Retries move messages back to `committed/`. Rejects move to `dead/`.
 
+## Telemetry (Early)
+
+Events emitted:
+
+- `[:incoming, :message, :queued]` measurements: `%{count: 1}`, metadata: `%{id, size, queue_depth}`
+- `[:incoming, :delivery, :result]` measurements: `%{count: 1}`, metadata: `%{id, outcome, reason}`
+- `[:incoming, :session, :connect]` measurements: `%{count: 1}`, metadata: `%{peer}`
+- `[:incoming, :session, :accepted]` measurements: `%{count: 1}`, metadata: `%{id}`
+- `[:incoming, :session, :rejected]` measurements: `%{count: 1}`, metadata: `%{reason}`
+
 ## TLS (Early)
 
 You can enable TLS with self-signed certs for testing:

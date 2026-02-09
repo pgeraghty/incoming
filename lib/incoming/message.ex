@@ -18,4 +18,27 @@ defmodule Incoming.Message do
           raw_path: String.t(),
           meta_path: String.t()
         }
+
+  def headers(%__MODULE__{raw_path: path}) do
+    path
+    |> File.stream!([], 1024)
+    |> Enum.reduce_while(%{}, fn line, acc ->
+      cond do
+        line == "\r\n" or line == "\n" ->
+          {:halt, acc}
+
+        String.starts_with?(line, " ") or String.starts_with?(line, "\t") ->
+          {:cont, acc}
+
+        true ->
+          case String.split(line, ":", parts: 2) do
+            [key, value] ->
+              {:cont, Map.put(acc, String.downcase(String.trim(key)), String.trim(value))}
+
+            _ ->
+              {:cont, acc}
+          end
+      end
+    end)
+  end
 end

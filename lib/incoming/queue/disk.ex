@@ -11,6 +11,7 @@ defmodule Incoming.Queue.Disk do
 
   @impl true
   def init(opts) do
+    opts = Incoming.Validate.queue_opts!(opts)
     path = Keyword.get(opts, :path, "/tmp/incoming")
     fsync = Keyword.get(opts, :fsync, true)
     ensure_dirs(path)

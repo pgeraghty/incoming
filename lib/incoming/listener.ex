@@ -2,6 +2,7 @@ defmodule Incoming.Listener do
   @moduledoc false
 
   def child_spec(%{name: _name} = listener) do
+    listener = Incoming.Validate.listener!(listener)
     name = Map.fetch!(listener, :name)
     port = Map.get(listener, :port, 2525)
     domain = Map.get(listener, :domain, smtp_domain())
@@ -60,9 +61,7 @@ defmodule Incoming.Listener do
     end
   end
 
-  defp validate_tls!(mode, _opts) do
-    raise ArgumentError, "invalid tls mode: #{inspect(mode)}"
-  end
+  defp validate_tls!(mode, _opts), do: raise(ArgumentError, "invalid tls mode: #{inspect(mode)}")
 
   defp maybe_add_tls_options(opts, _tls_opts, :disabled), do: opts
   defp maybe_add_tls_options(opts, tls_opts, _mode), do: Keyword.put(opts, :tls_options, tls_opts)

@@ -11,6 +11,30 @@ defmodule IncomingTest do
     assert File.exists?(Path.join([tmp, "committed", message.id, "meta.json"]))
   end
 
+  test "queue enqueue_stream writes chunks to disk", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    chunks = ["Subject: Test\r\n", "\r\nBody\r\n"]
+
+    {:ok, message} = Incoming.Queue.Disk.enqueue_stream(from, to, chunks, path: tmp, fsync: false)
+    assert File.read!(message.raw_path) == IO.iodata_to_binary(chunks)
+  end
+
+  test "queue enqueue_stream enforces max_message_size and cleans up", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    chunks = ["12345", "6"]
+
+    assert {:error, :message_too_large} =
+             Incoming.Queue.Disk.enqueue_stream(from, to, chunks,
+               path: tmp,
+               fsync: false,
+               max_message_size: 5
+             )
+
+    assert File.ls!(Path.join(tmp, "committed")) == []
+  end
+
   test "message headers parsed from raw file", %{tmp: tmp} do
     from = "sender@example.com"
     to = ["rcpt@example.com"]
@@ -327,7 +351,11 @@ defmodule IncomingTest do
   end
 
   test "max recipients enforced", %{} do
-    Application.put_env(:incoming, :session_opts, max_message_size: 10 * 1024 * 1024, max_recipients: 1)
+    Application.put_env(:incoming, :session_opts,
+      max_message_size: 10 * 1024 * 1024,
+      max_recipients: 1
+    )
+
     restart_app()
 
     {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
@@ -348,12 +376,17 @@ defmodule IncomingTest do
     send_line(socket, "QUIT")
     assert_recv(socket, "221")
 
-    Application.put_env(:incoming, :session_opts, max_message_size: 10 * 1024 * 1024, max_recipients: 100)
+    Application.put_env(:incoming, :session_opts,
+      max_message_size: 10 * 1024 * 1024,
+      max_recipients: 100
+    )
+
     restart_app()
   end
 
   test "tls required policy rejects before starttls", %{} do
     Application.put_env(:incoming, :policies, [Incoming.Policy.TlsRequired])
+
     Application.put_env(:incoming, :listeners, [
       %{
         name: :test,
@@ -365,6 +398,7 @@ defmodule IncomingTest do
         ]
       }
     ])
+
     restart_app()
 
     {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
@@ -454,7 +488,11 @@ defmodule IncomingTest do
     send_line(socket, "QUIT")
     assert_recv(socket, "221")
 
-    Application.put_env(:incoming, :session_opts, max_message_size: 10 * 1024 * 1024, max_recipients: 100)
+    Application.put_env(:incoming, :session_opts,
+      max_message_size: 10 * 1024 * 1024,
+      max_recipients: 100
+    )
+
     restart_app()
   end
 
@@ -477,7 +515,11 @@ defmodule IncomingTest do
     send_line(socket, "QUIT")
     assert_recv(socket, "221")
 
-    Application.put_env(:incoming, :session_opts, max_message_size: 10 * 1024 * 1024, max_recipients: 100)
+    Application.put_env(:incoming, :session_opts,
+      max_message_size: 10 * 1024 * 1024,
+      max_recipients: 100
+    )
+
     restart_app()
   end
 
@@ -506,7 +548,11 @@ defmodule IncomingTest do
     send_line(socket, "QUIT")
     assert_recv(socket, "221")
 
-    Application.put_env(:incoming, :session_opts, max_message_size: 10 * 1024 * 1024, max_recipients: 100)
+    Application.put_env(:incoming, :session_opts,
+      max_message_size: 10 * 1024 * 1024,
+      max_recipients: 100
+    )
+
     Application.put_env(:incoming, :policies, [])
     restart_app()
   end
@@ -528,6 +574,7 @@ defmodule IncomingTest do
     restart_app()
 
     Application.put_env(:incoming, :rate_limit, 1)
+
     for _ <- 1..1 do
       {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
       :ok = :gen_tcp.close(socket)
@@ -557,9 +604,12 @@ defmodule IncomingTest do
         ]
       }
     ])
+
     restart_app()
 
-    cmd = "printf 'EHLO test\\nSTARTTLS\\nQUIT\\n' | openssl s_client -starttls smtp -connect 127.0.0.1:2526 -quiet -servername localhost"
+    cmd =
+      "printf 'EHLO test\\nSTARTTLS\\nQUIT\\n' | openssl s_client -starttls smtp -connect 127.0.0.1:2526 -quiet -servername localhost"
+
     {output, _status} = System.cmd("bash", ["-lc", cmd])
     assert output =~ "250 SMTPUTF8"
 
@@ -579,9 +629,12 @@ defmodule IncomingTest do
         ]
       }
     ])
+
     restart_app()
 
-    cmd = "timeout 5s bash -lc \"printf 'EHLO test\\nEHLO test\\nMAIL FROM:<sender@example.com>\\nRCPT TO:<rcpt@example.com>\\nDATA\\nSubject: Test\\n\\nBody\\n.\\nQUIT\\n' | openssl s_client -starttls smtp -crlf -connect 127.0.0.1:2526 -quiet -ign_eof -servername localhost\""
+    cmd =
+      "timeout 5s bash -lc \"printf 'EHLO test\\nEHLO test\\nMAIL FROM:<sender@example.com>\\nRCPT TO:<rcpt@example.com>\\nDATA\\nSubject: Test\\n\\nBody\\n.\\nQUIT\\n' | openssl s_client -starttls smtp -crlf -connect 127.0.0.1:2526 -quiet -ign_eof -servername localhost\""
+
     {output, _status} = System.cmd("bash", ["-lc", cmd])
     assert output =~ "250 SMTPUTF8"
     assert output =~ "250 Ok: queued"
@@ -592,6 +645,7 @@ defmodule IncomingTest do
 
   test "tls required policy enforces starttls across connections", %{} do
     Application.put_env(:incoming, :policies, [Incoming.Policy.TlsRequired])
+
     Application.put_env(:incoming, :listeners, [
       %{
         name: :test,
@@ -603,6 +657,7 @@ defmodule IncomingTest do
         ]
       }
     ])
+
     restart_app()
 
     {:ok, socket1} = connect_with_retry(~c"localhost", 2526, 10)
@@ -661,7 +716,11 @@ defmodule IncomingTest do
     send_line(socket, "QUIT")
     assert_recv(socket, "221")
 
-    Application.put_env(:incoming, :session_opts, max_message_size: 10 * 1024 * 1024, max_recipients: 100)
+    Application.put_env(:incoming, :session_opts,
+      max_message_size: 10 * 1024 * 1024,
+      max_recipients: 100
+    )
+
     restart_app()
   end
 
@@ -677,7 +736,11 @@ defmodule IncomingTest do
     send_line(socket, "QUIT")
     assert_recv(socket, "221")
 
-    Application.put_env(:incoming, :session_opts, max_message_size: 10 * 1024 * 1024, max_recipients: 100)
+    Application.put_env(:incoming, :session_opts,
+      max_message_size: 10 * 1024 * 1024,
+      max_recipients: 100
+    )
+
     restart_app()
   end
 
@@ -693,6 +756,7 @@ defmodule IncomingTest do
         ]
       }
     ])
+
     restart_app()
 
     {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
@@ -762,7 +826,11 @@ defmodule IncomingTest do
     data = "Subject: Test\r\n\r\nBody\r\n"
 
     {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
-    File.write!(Path.join([tmp, "committed", message.id, "meta.json"]), Jason.encode!(%{"received_at" => "bad"}))
+
+    File.write!(
+      Path.join([tmp, "committed", message.id, "meta.json"]),
+      Jason.encode!(%{"received_at" => "bad"})
+    )
 
     assert {:ok, loaded} = Incoming.Queue.Disk.dequeue()
     assert loaded.mail_from == nil
@@ -775,7 +843,11 @@ defmodule IncomingTest do
     data = "Subject: Test\r\n\r\nBody\r\n"
 
     {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
-    File.write!(Path.join([tmp, "committed", message.id, "meta.json"]), Jason.encode!(%{"received_at" => "not-a-time"}))
+
+    File.write!(
+      Path.join([tmp, "committed", message.id, "meta.json"]),
+      Jason.encode!(%{"received_at" => "not-a-time"})
+    )
 
     assert {:ok, loaded} = Incoming.Queue.Disk.dequeue()
     assert %DateTime{} = loaded.received_at
@@ -787,9 +859,13 @@ defmodule IncomingTest do
     data = "Subject: Test\r\n\r\nBody\r\n"
 
     {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+
     File.write!(
       Path.join([tmp, "committed", message.id, "meta.json"]),
-      Jason.encode!(%{"mail_from" => "sender@example.com", "received_at" => DateTime.utc_now() |> DateTime.to_iso8601()})
+      Jason.encode!(%{
+        "mail_from" => "sender@example.com",
+        "received_at" => DateTime.utc_now() |> DateTime.to_iso8601()
+      })
     )
 
     assert {:ok, loaded} = Incoming.Queue.Disk.dequeue()
@@ -859,9 +935,15 @@ defmodule IncomingTest do
       base = Path.join([tmp, "committed", id])
       File.mkdir_p!(base)
       File.write!(Path.join(base, "raw.eml"), "Subject: Test\r\n\r\nBody\r\n")
+
       File.write!(
         Path.join(base, "meta.json"),
-        Jason.encode!(%{id: id, mail_from: "from@example.com", rcpt_to: ["to@example.com"], received_at: DateTime.utc_now() |> DateTime.to_iso8601()})
+        Jason.encode!(%{
+          id: id,
+          mail_from: "from@example.com",
+          rcpt_to: ["to@example.com"],
+          received_at: DateTime.utc_now() |> DateTime.to_iso8601()
+        })
       )
     end
 
@@ -1208,6 +1290,7 @@ defmodule IncomingTest do
   end
 
   defp collect_phases(acc, timeout \\ 100)
+
   defp collect_phases(acc, timeout) do
     receive do
       {:policy_phase, phase, _ctx} -> collect_phases([phase | acc], timeout)
@@ -1249,7 +1332,12 @@ defmodule IncomingTest do
 
   test "policy short-circuits on rejection", %{} do
     IncomingTest.CapturePolicy.set_target(self())
-    Application.put_env(:incoming, :policies, [Incoming.Policy.HelloRequired, IncomingTest.CapturePolicy])
+
+    Application.put_env(:incoming, :policies, [
+      Incoming.Policy.HelloRequired,
+      IncomingTest.CapturePolicy
+    ])
+
     restart_app()
 
     {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
@@ -1383,7 +1471,15 @@ defmodule IncomingTest do
     )
 
     Application.put_env(:incoming, :delivery, IncomingTest.DummyAdapter)
-    Application.put_env(:incoming, :delivery_opts, workers: 1, poll_interval: 10, max_attempts: 1, base_backoff: 1, max_backoff: 1)
+
+    Application.put_env(:incoming, :delivery_opts,
+      workers: 1,
+      poll_interval: 10,
+      max_attempts: 1,
+      base_backoff: 1,
+      max_backoff: 1
+    )
+
     restart_app()
 
     IncomingTest.DummyAdapter.set_mode(:retry)
@@ -1444,6 +1540,7 @@ defmodule IncomingTest do
     )
 
     Application.put_env(:incoming, :delivery, IncomingTest.DummyAdapter)
+
     Application.put_env(:incoming, :delivery_opts,
       workers: 1,
       poll_interval: 10,
@@ -1451,6 +1548,7 @@ defmodule IncomingTest do
       base_backoff: 1,
       max_backoff: 1
     )
+
     restart_app()
 
     IncomingTest.DummyAdapter.set_mode(:retry)
@@ -1489,6 +1587,7 @@ defmodule IncomingTest do
 
   test "delivery retry stops after max_attempts", %{tmp: tmp} do
     Application.put_env(:incoming, :delivery, IncomingTest.DummyAdapter)
+
     Application.put_env(:incoming, :delivery_opts,
       workers: 1,
       poll_interval: 10,
@@ -1496,6 +1595,7 @@ defmodule IncomingTest do
       base_backoff: 1,
       max_backoff: 1
     )
+
     restart_app()
 
     IncomingTest.DummyAdapter.set_mode(:retry)
@@ -1596,6 +1696,7 @@ defmodule IncomingTest do
 
   defp read_multiline(socket, code) do
     line = recv_line(socket)
+
     cond do
       String.starts_with?(line, code <> "-") ->
         read_multiline(socket, code)
@@ -1610,6 +1711,7 @@ defmodule IncomingTest do
 
   defp read_multiline_lines(socket, code, acc \\ []) do
     line = recv_line(socket)
+
     cond do
       String.starts_with?(line, code <> "-") ->
         read_multiline_lines(socket, code, [line | acc])
@@ -1657,5 +1759,4 @@ defmodule IncomingTest do
       wait_until(fun, attempts - 1)
     end
   end
-
 end

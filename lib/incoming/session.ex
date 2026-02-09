@@ -36,6 +36,7 @@ defmodule Incoming.Session do
       :ok ->
         emit(:connect, %{peer: peer, hostname: hostname})
         {:ok, banner, state}
+
       {:reject, code, message} ->
         emit(:rejected, %{reason: message})
         {:stop, :policy_reject, "#{code} #{message}"}
@@ -61,13 +62,15 @@ defmodule Incoming.Session do
 
         {:ok, exts, %{state | seen_helo: true}}
 
-      {:reject, code, message} -> {:error, "#{code} #{message}", state}
+      {:reject, code, message} ->
+        {:error, "#{code} #{message}", state}
     end
   end
 
   @impl true
   def handle_MAIL(from, state) do
     state = %{state | mail_from: from, rcpt_to: []}
+
     case policy_check(:mail_from, state) do
       :ok -> {:ok, state}
       {:reject, code, message} -> {:error, "#{code} #{message}", state}
@@ -86,10 +89,10 @@ defmodule Incoming.Session do
     if length(state.rcpt_to) > state.max_recipients do
       {:error, resp(452, "Too many recipients"), state}
     else
-    case policy_check(:rcpt_to, state) do
-      :ok -> {:ok, state}
-      {:reject, code, message} -> {:error, resp(code, message), state}
-    end
+      case policy_check(:rcpt_to, state) do
+        :ok -> {:ok, state}
+        {:reject, code, message} -> {:error, resp(code, message), state}
+      end
     end
   end
 
@@ -106,12 +109,25 @@ defmodule Incoming.Session do
           emit(:rejected, %{reason: :message_too_large})
           {:error, resp(552, "Message too large"), state}
         else
-          case state.queue.enqueue(from, to, data, state.queue_opts) do
+          enqueue_opts = Keyword.put(state.queue_opts, :max_message_size, state.max_message_size)
+
+          result =
+            if function_exported?(state.queue, :enqueue_stream, 4) do
+              state.queue.enqueue_stream(from, to, [data], enqueue_opts)
+            else
+              state.queue.enqueue(from, to, data, enqueue_opts)
+            end
+
+          case result do
             {:ok, %Incoming.Message{id: id} = message} ->
               _ = policy_check(:message_complete, state)
               Incoming.Delivery.Dispatcher.dispatch(message)
               emit(:accepted, %{id: id})
               {:ok, "Ok: queued as <#{id}>", state}
+
+            {:error, :message_too_large} ->
+              emit(:rejected, %{reason: :message_too_large})
+              {:error, resp(552, "Message too large"), state}
 
             {:error, reason} ->
               Logger.error("queue_error=#{inspect(reason)}")

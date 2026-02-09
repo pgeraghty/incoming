@@ -10,6 +10,15 @@ defmodule Incoming.Queue do
               opts :: keyword()
             ) :: {:ok, Incoming.Message.t()} | {:error, term()}
 
+  @callback enqueue_stream(
+              mail_from :: binary(),
+              rcpt_to :: [binary()],
+              chunks :: Enumerable.t(),
+              opts :: keyword()
+            ) :: {:ok, Incoming.Message.t()} | {:error, term()}
+
+  @optional_callbacks enqueue_stream: 4
+
   @callback dequeue() :: {:ok, Incoming.Message.t()} | {:empty}
   @callback ack(message_id :: String.t()) :: :ok
   @callback nack(message_id :: String.t(), :retry | :reject, reason :: term()) :: :ok

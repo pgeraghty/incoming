@@ -29,50 +29,106 @@ defmodule Incoming.Queue.Disk do
 
   @impl true
   def enqueue(from, to, data, opts) do
+    enqueue_stream(from, to, [data], opts)
+  end
+
+  @impl true
+  def enqueue_stream(from, to, chunks, opts) do
     path = Keyword.get(opts, :path, "/tmp/incoming")
     fsync = Keyword.get(opts, :fsync, true)
+    max_message_size = Keyword.get(opts, :max_message_size, nil)
+
     ensure_dirs(path)
     id = Incoming.Id.generate()
-
     base = Path.join([path, "committed", id])
     File.mkdir_p!(base)
 
     raw_path = Path.join(base, "raw.eml")
+    raw_tmp_path = Path.join(base, "raw.tmp")
     meta_path = Path.join(base, "meta.json")
+    meta_tmp_path = Path.join(base, "meta.tmp")
     received_at = DateTime.utc_now()
 
-    File.write!(raw_path, data)
-    File.write!(meta_path, Jason.encode!(%{
-      id: id,
-      mail_from: from,
-      rcpt_to: to,
-      received_at: received_at |> DateTime.to_iso8601()
-    }))
+    try do
+      size =
+        File.open!(raw_tmp_path, [:write, :binary], fn io ->
+          Enum.reduce_while(chunks, 0, fn chunk, acc ->
+            chunk_size = IO.iodata_length(chunk)
+            new_size = acc + chunk_size
 
-    if fsync do
-      :ok = fsync_dir(base)
+            if is_integer(max_message_size) and new_size > max_message_size do
+              {:halt, {:too_large, new_size}}
+            else
+              :ok = IO.binwrite(io, chunk)
+              {:cont, new_size}
+            end
+          end)
+        end)
+
+      case size do
+        {:too_large, _size} ->
+          File.rm_rf!(base)
+          {:error, :message_too_large}
+
+        size when is_integer(size) ->
+          :ok = File.rename(raw_tmp_path, raw_path)
+
+          meta_payload =
+            Jason.encode!(%{
+              id: id,
+              mail_from: from,
+              rcpt_to: to,
+              received_at: received_at |> DateTime.to_iso8601(),
+              size: size
+            })
+
+          File.write!(meta_tmp_path, meta_payload)
+          :ok = File.rename(meta_tmp_path, meta_path)
+
+          if fsync do
+            :ok = fsync_file(raw_path)
+            :ok = fsync_file(meta_path)
+            :ok = fsync_dir(base)
+          end
+
+          message = %Incoming.Message{
+            id: id,
+            mail_from: from,
+            rcpt_to: to,
+            received_at: received_at,
+            raw_path: raw_path,
+            meta_path: meta_path
+          }
+
+          Incoming.Metrics.emit([:incoming, :message, :queued], %{count: 1}, %{
+            id: id,
+            size: size,
+            queue_depth: depth()
+          })
+
+          {:ok, message}
+      end
+    rescue
+      e ->
+        _ = File.rm_rf(base)
+        {:error, e}
     end
-
-    message = %Incoming.Message{
-      id: id,
-      mail_from: from,
-      rcpt_to: to,
-      received_at: received_at,
-      raw_path: raw_path,
-      meta_path: meta_path
-    }
-
-    Incoming.Metrics.emit([:incoming, :message, :queued], %{count: 1}, %{
-      id: id,
-      size: byte_size(data),
-      queue_depth: depth()
-    })
-
-    {:ok, message}
   end
 
   defp fsync_dir(dir) do
     case File.open(dir, [:read]) do
+      {:ok, io} ->
+        _ = :file.sync(io)
+        File.close(io)
+        :ok
+
+      _ ->
+        :ok
+    end
+  end
+
+  defp fsync_file(path) do
+    case File.open(path, [:read]) do
       {:ok, io} ->
         _ = :file.sync(io)
         File.close(io)
@@ -96,6 +152,7 @@ defmodule Incoming.Queue.Disk do
       [id | _] ->
         from = Path.join(committed, id)
         to = Path.join(path, "processing")
+
         case load_message(from, id) do
           {:ok, message} ->
             :ok = File.rename(from, Path.join(to, id))
@@ -214,6 +271,7 @@ defmodule Incoming.Queue.Disk do
   end
 
   defp parse_time(nil), do: DateTime.utc_now()
+
   defp parse_time(value) do
     case DateTime.from_iso8601(value) do
       {:ok, dt, _} -> dt

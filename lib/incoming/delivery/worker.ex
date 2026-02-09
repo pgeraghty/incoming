@@ -13,6 +13,7 @@ defmodule Incoming.Delivery.Worker do
     max_attempts = Keyword.get(opts, :max_attempts, 5)
     base_backoff = Keyword.get(opts, :base_backoff, 1_000)
     max_backoff = Keyword.get(opts, :max_backoff, 5_000)
+
     state = %{
       interval: interval,
       attempts: %{},
@@ -20,6 +21,7 @@ defmodule Incoming.Delivery.Worker do
       base_backoff: base_backoff,
       max_backoff: max_backoff
     }
+
     schedule_tick(0)
     {:ok, state}
   end

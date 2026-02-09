@@ -16,7 +16,12 @@ defmodule IncomingCase do
     Application.put_env(:incoming, :listeners, [%{name: :test, port: 2526, tls: :disabled}])
     Application.put_env(:incoming, :policies, [])
     Application.put_env(:incoming, :delivery, nil)
-    Application.put_env(:incoming, :session_opts, max_message_size: 10 * 1024 * 1024, max_recipients: 100)
+
+    Application.put_env(:incoming, :session_opts,
+      max_message_size: 10 * 1024 * 1024,
+      max_recipients: 100
+    )
+
     restart_app()
     on_exit(fn -> Application.stop(:incoming) end)
     :ok

@@ -1085,11 +1085,13 @@ defmodule IncomingTest do
     committed2 = Path.join([tmp, "committed", "b"])
     processing = Path.join([tmp, "processing", "c"])
     dead = Path.join([tmp, "dead", "d"])
+    incoming = Path.join([tmp, "incoming", "e"])
 
     File.mkdir_p!(committed1)
     File.mkdir_p!(committed2)
     File.mkdir_p!(processing)
     File.mkdir_p!(dead)
+    File.mkdir_p!(incoming)
 
     assert Incoming.Queue.Disk.depth() == 2
   end

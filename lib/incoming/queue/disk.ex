@@ -22,9 +22,7 @@ defmodule Incoming.Queue.Disk do
 
   @impl true
   def handle_info(:emit_depth, state) do
-    if Code.ensure_loaded?(:telemetry) and function_exported?(:telemetry, :execute, 3) do
-      :telemetry.execute([:incoming, :queue, :depth], %{count: depth()}, %{})
-    end
+    Incoming.Metrics.emit([:incoming, :queue, :depth], %{count: depth()}, %{})
     schedule_depth_telemetry()
     {:noreply, state}
   end
@@ -64,13 +62,11 @@ defmodule Incoming.Queue.Disk do
       meta_path: meta_path
     }
 
-    if Code.ensure_loaded?(:telemetry) and function_exported?(:telemetry, :execute, 3) do
-      :telemetry.execute([:incoming, :message, :queued], %{count: 1}, %{
-        id: id,
-        size: byte_size(data),
-        queue_depth: depth()
-      })
-    end
+    Incoming.Metrics.emit([:incoming, :message, :queued], %{count: 1}, %{
+      id: id,
+      size: byte_size(data),
+      queue_depth: depth()
+    })
 
     {:ok, message}
   end

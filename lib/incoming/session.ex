@@ -212,8 +212,6 @@ defmodule Incoming.Session do
   defp maybe_add_starttls(extensions, _state), do: extensions
 
   defp emit(event, meta) do
-    if Code.ensure_loaded?(:telemetry) and function_exported?(:telemetry, :execute, 3) do
-      :telemetry.execute([:incoming, :session, event], %{count: 1}, meta)
-    end
+    Incoming.Metrics.emit([:incoming, :session, event], %{count: 1}, meta)
   end
 end

@@ -81,6 +81,11 @@ Return values:
 - `{:retry, reason}` -> message requeued with backoff
 - `{:reject, reason}` -> message moved to dead-letter
 
+## Limitations
+
+- SMTP DATA is fully buffered in memory by `gen_smtp` before we write to disk.
+- Large messages can consume significant memory; streaming support is planned.
+
 ## TLS (Early)
 
 You can enable TLS with self-signed certs for testing:

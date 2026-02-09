@@ -62,7 +62,7 @@ defmodule Incoming.Delivery.Worker do
   defp handle_result(_queue, _message, _result, state), do: state
 
   defp emit(outcome, id, reason) do
-    :telemetry.execute([:incoming, :delivery, :result], %{count: 1}, %{
+    Incoming.Metrics.emit([:incoming, :delivery, :result], %{count: 1}, %{
       id: id,
       outcome: outcome,
       reason: reason

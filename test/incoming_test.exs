@@ -39,6 +39,32 @@ defmodule IncomingTest do
     assert length(File.ls!(committed)) == 1
   end
 
+  test "queue dequeue and ack remove from processing", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    assert {:ok, ^message} = Incoming.Queue.Disk.dequeue()
+    :ok = Incoming.Queue.Disk.ack(message.id)
+
+    assert File.exists?(Path.join(tmp, "processing")) == true
+    assert File.ls!(Path.join(tmp, "processing")) == []
+  end
+
+  test "queue nack reject moves to dead", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    assert {:ok, ^message} = Incoming.Queue.Disk.dequeue()
+    :ok = Incoming.Queue.Disk.nack(message.id, :reject)
+
+    dead = Path.join(tmp, "dead")
+    assert File.exists?(Path.join(dead, message.id))
+  end
+
   defp send_line(socket, line) do
     :ok = :gen_tcp.send(socket, line <> "\r\n")
   end

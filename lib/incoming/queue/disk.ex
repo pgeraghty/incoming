@@ -14,6 +14,8 @@ defmodule Incoming.Queue.Disk do
     path = Keyword.get(opts, :path, "/tmp/incoming")
     fsync = Keyword.get(opts, :fsync, true)
     File.mkdir_p!(Path.join(path, "committed"))
+    File.mkdir_p!(Path.join(path, "processing"))
+    File.mkdir_p!(Path.join(path, "dead"))
     {:ok, %{path: path, fsync: fsync}}
   end
 
@@ -21,6 +23,7 @@ defmodule Incoming.Queue.Disk do
   def enqueue(from, to, data, opts) do
     path = Keyword.get(opts, :path, "/tmp/incoming")
     fsync = Keyword.get(opts, :fsync, true)
+    ensure_dirs(path)
     id = Incoming.Id.generate()
 
     base = Path.join([path, "committed", id])
@@ -74,17 +77,117 @@ defmodule Incoming.Queue.Disk do
   end
 
   @impl true
-  def dequeue, do: {:empty}
+  def dequeue do
+    path = state_path()
+    ensure_dirs(path)
+    committed = Path.join(path, "committed")
+
+    case list_ids(committed) do
+      [] ->
+        {:empty}
+
+      [id | _] ->
+        from = Path.join(committed, id)
+        to = Path.join(path, "processing")
+        {:ok, message} = load_message(from, id)
+        :ok = File.rename(from, Path.join(to, id))
+        {:ok, message}
+    end
+  end
 
   @impl true
-  def ack(_message_id), do: :ok
+  def ack(message_id) do
+    path = state_path()
+    ensure_dirs(path)
+    File.rm_rf(Path.join([path, "processing", message_id]))
+    :ok
+  end
 
   @impl true
-  def nack(_message_id, _action), do: :ok
+  def nack(message_id, action) do
+    path = state_path()
+    ensure_dirs(path)
+    from = Path.join([path, "processing", message_id])
+
+    case action do
+      :retry ->
+        File.rename(from, Path.join([path, "committed", message_id]))
+        :ok
+
+      :reject ->
+        File.rename(from, Path.join([path, "dead", message_id]))
+        :ok
+    end
+  end
 
   @impl true
-  def depth, do: 0
+  def depth do
+    path = state_path()
+    ensure_dirs(path)
+    committed = Path.join(path, "committed")
+    length(list_ids(committed))
+  end
 
   @impl true
-  def recover, do: :ok
+  def recover do
+    path = state_path()
+    ensure_dirs(path)
+    processing = Path.join(path, "processing")
+
+    for id <- list_ids(processing) do
+      File.rename(Path.join(processing, id), Path.join([path, "committed", id]))
+    end
+
+    :ok
+  end
+
+  defp list_ids(dir) do
+    case File.ls(dir) do
+      {:ok, entries} ->
+        entries
+        |> Enum.sort()
+
+      _ ->
+        []
+    end
+  end
+
+  defp ensure_dirs(path) do
+    File.mkdir_p!(Path.join(path, "committed"))
+    File.mkdir_p!(Path.join(path, "processing"))
+    File.mkdir_p!(Path.join(path, "dead"))
+  end
+
+  defp load_message(dir, id) do
+    meta_path = Path.join(dir, "meta.json")
+    raw_path = Path.join(dir, "raw.eml")
+
+    with {:ok, meta} <- File.read(meta_path),
+         {:ok, decoded} <- Jason.decode(meta) do
+      received_at = parse_time(decoded["received_at"])
+
+      {:ok,
+       %Incoming.Message{
+         id: id,
+         mail_from: decoded["mail_from"],
+         rcpt_to: decoded["rcpt_to"] || [],
+         received_at: received_at,
+         raw_path: raw_path,
+         meta_path: meta_path
+       }}
+    end
+  end
+
+  defp parse_time(nil), do: DateTime.utc_now()
+  defp parse_time(value) do
+    case DateTime.from_iso8601(value) do
+      {:ok, dt, _} -> dt
+      _ -> DateTime.utc_now()
+    end
+  end
+
+  defp state_path do
+    Application.get_env(:incoming, :queue_opts, path: "/tmp/incoming")
+    |> Keyword.get(:path, "/tmp/incoming")
+  end
 end

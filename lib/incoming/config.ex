@@ -35,4 +35,12 @@ defmodule Incoming.Config do
   def policies do
     Application.get_env(:incoming, :policies, [])
   end
+
+  def delivery_adapter do
+    Application.get_env(:incoming, :delivery)
+  end
+
+  def delivery_opts do
+    Application.get_env(:incoming, :delivery_opts, workers: 1, poll_interval: 1_000)
+  end
 end

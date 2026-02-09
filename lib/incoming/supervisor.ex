@@ -17,6 +17,8 @@ defmodule Incoming.Supervisor do
       Incoming.Config.listeners()
       |> Enum.map(&Incoming.Listener.child_spec/1)
 
+    Incoming.Config.queue_module().recover()
+
     children = [queue_child, delivery_child | listener_children]
 
     Supervisor.init(children, strategy: :one_for_one)

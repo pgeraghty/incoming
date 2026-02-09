@@ -65,6 +65,48 @@ defmodule IncomingTest do
     assert File.exists?(Path.join(dead, message.id))
   end
 
+  test "queue recover moves processing back to committed", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    assert {:ok, ^message} = Incoming.Queue.Disk.dequeue()
+    processing = Path.join(tmp, "processing")
+    assert File.exists?(Path.join(processing, message.id))
+
+    :ok = Incoming.Queue.Disk.recover()
+    committed = Path.join(tmp, "committed")
+    assert File.exists?(Path.join(committed, message.id))
+  end
+
+  test "delivery worker ack/retry/reject", %{tmp: tmp} do
+    Application.put_env(:incoming, :delivery, IncomingTest.DummyAdapter)
+    Application.put_env(:incoming, :delivery_opts, workers: 1, poll_interval: 10)
+    restart_app()
+
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+
+    {:ok, message1} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    {:ok, message2} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    {:ok, message3} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+
+    :ok = IncomingTest.DummyAdapter.set_mode(:ok)
+    wait_until(fn -> not File.exists?(Path.join([tmp, "committed", message1.id])) end)
+
+    :ok = IncomingTest.DummyAdapter.set_mode(:retry)
+    wait_until(fn -> File.exists?(Path.join([tmp, "committed", message2.id])) end)
+
+    :ok = IncomingTest.DummyAdapter.set_mode(:reject)
+    wait_until(fn -> File.exists?(Path.join([tmp, "dead", message3.id])) end)
+
+    Application.put_env(:incoming, :delivery, nil)
+    Application.put_env(:incoming, :delivery_opts, workers: 1, poll_interval: 1_000)
+    restart_app()
+  end
+
   test "hello required policy rejects mail before helo", %{} do
     Application.put_env(:incoming, :policies, [Incoming.Policy.HelloRequired])
     restart_app()
@@ -191,6 +233,18 @@ defmodule IncomingTest do
   defp restart_app do
     Application.stop(:incoming)
     Application.ensure_all_started(:incoming)
+  end
+
+  defp wait_until(fun, attempts \\ 50)
+  defp wait_until(_fun, 0), do: :timeout
+
+  defp wait_until(fun, attempts) do
+    if fun.() do
+      :ok
+    else
+      Process.sleep(20)
+      wait_until(fun, attempts - 1)
+    end
   end
 
 end

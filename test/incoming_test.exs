@@ -162,7 +162,9 @@ defmodule IncomingTest do
     data = "Subject: Test\r\n\r\nBody\r\n"
 
     {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
-    assert {:ok, ^message} = Incoming.Queue.Disk.dequeue()
+    assert {:ok, dequeued} = Incoming.Queue.Disk.dequeue()
+    assert dequeued.id == message.id
+    assert File.exists?(dequeued.raw_path)
     :ok = Incoming.Queue.Disk.ack(message.id)
 
     assert File.exists?(Path.join(tmp, "processing")) == true
@@ -175,7 +177,8 @@ defmodule IncomingTest do
     data = "Subject: Test\r\n\r\nBody\r\n"
 
     {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
-    assert {:ok, ^message} = Incoming.Queue.Disk.dequeue()
+    assert {:ok, dequeued} = Incoming.Queue.Disk.dequeue()
+    assert dequeued.id == message.id
     :ok = Incoming.Queue.Disk.nack(message.id, :reject, :test_reason)
 
     dead = Path.join(tmp, "dead")
@@ -191,7 +194,8 @@ defmodule IncomingTest do
     assert Incoming.Queue.Disk.depth() == 0
     {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
     assert Incoming.Queue.Disk.depth() == 1
-    assert {:ok, ^message} = Incoming.Queue.Disk.dequeue()
+    assert {:ok, dequeued} = Incoming.Queue.Disk.dequeue()
+    assert dequeued.id == message.id
     :ok = Incoming.Queue.Disk.nack(message.id, :reject, :permanent)
     assert Incoming.Queue.Disk.depth() == 0
   end
@@ -202,7 +206,8 @@ defmodule IncomingTest do
     data = "Subject: Test\r\n\r\nBody\r\n"
 
     {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
-    assert {:ok, ^message} = Incoming.Queue.Disk.dequeue()
+    assert {:ok, dequeued} = Incoming.Queue.Disk.dequeue()
+    assert dequeued.id == message.id
     :ok = Incoming.Queue.Disk.nack(message.id, :retry, :temporary)
 
     committed = Path.join([tmp, "committed", message.id])
@@ -217,7 +222,8 @@ defmodule IncomingTest do
     assert Incoming.Queue.Disk.depth() == 0
     {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
     assert Incoming.Queue.Disk.depth() == 1
-    assert {:ok, ^message} = Incoming.Queue.Disk.dequeue()
+    assert {:ok, dequeued} = Incoming.Queue.Disk.dequeue()
+    assert dequeued.id == message.id
     :ok = Incoming.Queue.Disk.nack(message.id, :retry, :temporary)
     assert Incoming.Queue.Disk.depth() == 1
   end
@@ -228,7 +234,8 @@ defmodule IncomingTest do
     data = "Subject: Test\r\n\r\nBody\r\n"
 
     {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
-    assert {:ok, ^message} = Incoming.Queue.Disk.dequeue()
+    assert {:ok, dequeued} = Incoming.Queue.Disk.dequeue()
+    assert dequeued.id == message.id
     processing = Path.join(tmp, "processing")
     assert File.exists?(Path.join(processing, message.id))
 
@@ -303,7 +310,8 @@ defmodule IncomingTest do
     File.write!(committed, "placeholder")
 
     assert {:empty} = Incoming.Queue.Disk.dequeue()
-    assert File.exists?(committed)
+    refute File.exists?(committed)
+    assert File.exists?(Path.join([tmp, "dead", id, "dead.json"]))
   end
 
   test "delivery worker ack/retry/reject", %{tmp: tmp} do
@@ -781,7 +789,8 @@ defmodule IncomingTest do
     File.write!(Path.join([tmp, "committed", message.id, "meta.json"]), "not-json")
 
     assert {:empty} = Incoming.Queue.Disk.dequeue()
-    assert File.exists?(Path.join([tmp, "committed", message.id]))
+    refute File.exists?(Path.join([tmp, "committed", message.id]))
+    assert File.exists?(Path.join([tmp, "dead", message.id, "dead.json"]))
   end
 
   test "queue dequeue skips missing metadata file", %{tmp: tmp} do
@@ -793,7 +802,8 @@ defmodule IncomingTest do
     File.rm!(Path.join([tmp, "committed", message.id, "meta.json"]))
 
     assert {:empty} = Incoming.Queue.Disk.dequeue()
-    assert File.exists?(Path.join([tmp, "committed", message.id]))
+    refute File.exists?(Path.join([tmp, "committed", message.id]))
+    assert File.exists?(Path.join([tmp, "dead", message.id, "dead.json"]))
   end
 
   test "queue dequeue skips missing raw file", %{tmp: tmp} do
@@ -804,8 +814,9 @@ defmodule IncomingTest do
     {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
     File.rm!(Path.join([tmp, "committed", message.id, "raw.eml"]))
 
-    assert {:ok, _message} = Incoming.Queue.Disk.dequeue()
-    # Message still dequeues based on metadata; raw file may be missing for consumers.
+    assert {:empty} = Incoming.Queue.Disk.dequeue()
+    refute File.exists?(Path.join([tmp, "committed", message.id]))
+    assert File.exists?(Path.join([tmp, "dead", message.id, "dead.json"]))
   end
 
   test "queue dequeue skips entry with missing raw and meta", %{tmp: tmp} do
@@ -818,6 +829,39 @@ defmodule IncomingTest do
     File.rm!(Path.join([tmp, "committed", message.id, "meta.json"]))
 
     assert {:empty} = Incoming.Queue.Disk.dequeue()
+    refute File.exists?(Path.join([tmp, "committed", message.id]))
+    assert File.exists?(Path.join([tmp, "dead", message.id, "dead.json"]))
+  end
+
+  test "queue dequeue skips invalid entry and still returns a later valid entry", %{tmp: tmp} do
+    committed = Path.join(tmp, "committed")
+
+    bad_id = "a"
+    bad_dir = Path.join([committed, bad_id])
+    File.mkdir_p!(bad_dir)
+    File.write!(Path.join(bad_dir, "meta.json"), Jason.encode!(%{"mail_from" => "x"}))
+    # Intentionally omit raw.eml
+
+    good_id = "b"
+    good_dir = Path.join([committed, good_id])
+    File.mkdir_p!(good_dir)
+
+    File.write!(Path.join(good_dir, "raw.eml"), "Subject: Ok\r\n\r\nBody\r\n")
+
+    File.write!(
+      Path.join(good_dir, "meta.json"),
+      Jason.encode!(%{
+        "id" => good_id,
+        "mail_from" => "sender@example.com",
+        "rcpt_to" => ["rcpt@example.com"],
+        "received_at" => DateTime.utc_now() |> DateTime.to_iso8601()
+      })
+    )
+
+    assert {:ok, message} = Incoming.Queue.Disk.dequeue()
+    assert message.id == good_id
+    assert File.exists?(message.raw_path)
+    assert File.exists?(Path.join([tmp, "dead", bad_id, "dead.json"]))
   end
 
   test "queue handles partial metadata (missing fields)", %{tmp: tmp} do
@@ -911,7 +955,8 @@ defmodule IncomingTest do
     assert Incoming.Queue.Disk.depth() == 0
     {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
     assert Incoming.Queue.Disk.depth() == 1
-    assert {:ok, ^message} = Incoming.Queue.Disk.dequeue()
+    assert {:ok, dequeued} = Incoming.Queue.Disk.dequeue()
+    assert dequeued.id == message.id
     :ok = Incoming.Queue.Disk.ack(message.id)
     assert Incoming.Queue.Disk.depth() == 0
   end
@@ -957,7 +1002,8 @@ defmodule IncomingTest do
     data = "Subject: Test\r\n\r\nBody\r\n"
 
     {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
-    assert {:ok, ^message} = Incoming.Queue.Disk.dequeue()
+    assert {:ok, dequeued} = Incoming.Queue.Disk.dequeue()
+    assert dequeued.id == message.id
     :ok = Incoming.Queue.Disk.nack(message.id, :reject, :test_reason)
 
     dead = Path.join([tmp, "dead", message.id, "dead.json"])

@@ -71,42 +71,60 @@ defmodule Incoming.Queue.Disk do
           {:error, :message_too_large}
 
         size when is_integer(size) ->
-          :ok = File.rename(raw_tmp_path, raw_path)
+          case File.rename(raw_tmp_path, raw_path) do
+            :ok ->
+              :ok
 
-          meta_payload =
-            Jason.encode!(%{
-              id: id,
-              mail_from: from,
-              rcpt_to: to,
-              received_at: received_at |> DateTime.to_iso8601(),
-              size: size
-            })
-
-          File.write!(meta_tmp_path, meta_payload)
-          :ok = File.rename(meta_tmp_path, meta_path)
-
-          if fsync do
-            :ok = fsync_file(raw_path)
-            :ok = fsync_file(meta_path)
-            :ok = fsync_dir(base)
+            {:error, reason} ->
+              File.rm_rf!(base)
+              {:error, reason}
           end
+          |> case do
+            {:error, reason} ->
+              {:error, reason}
 
-          message = %Incoming.Message{
-            id: id,
-            mail_from: from,
-            rcpt_to: to,
-            received_at: received_at,
-            raw_path: raw_path,
-            meta_path: meta_path
-          }
+            :ok ->
+              meta_payload =
+                Jason.encode!(%{
+                  id: id,
+                  mail_from: from,
+                  rcpt_to: to,
+                  received_at: received_at |> DateTime.to_iso8601(),
+                  size: size
+                })
 
-          Incoming.Metrics.emit([:incoming, :message, :queued], %{count: 1}, %{
-            id: id,
-            size: size,
-            queue_depth: depth()
-          })
+              File.write!(meta_tmp_path, meta_payload)
 
-          {:ok, message}
+              case File.rename(meta_tmp_path, meta_path) do
+                :ok ->
+                  if fsync do
+                    :ok = fsync_file(raw_path)
+                    :ok = fsync_file(meta_path)
+                    :ok = fsync_dir(base)
+                  end
+
+                  message = %Incoming.Message{
+                    id: id,
+                    mail_from: from,
+                    rcpt_to: to,
+                    received_at: received_at,
+                    raw_path: raw_path,
+                    meta_path: meta_path
+                  }
+
+                  Incoming.Metrics.emit([:incoming, :message, :queued], %{count: 1}, %{
+                    id: id,
+                    size: size,
+                    queue_depth: depth()
+                  })
+
+                  {:ok, message}
+
+                {:error, reason} ->
+                  File.rm_rf!(base)
+                  {:error, reason}
+              end
+          end
       end
     rescue
       e ->
@@ -144,23 +162,41 @@ defmodule Incoming.Queue.Disk do
     path = state_path()
     ensure_dirs(path)
     committed = Path.join(path, "committed")
+    processing = Path.join(path, "processing")
+    dead = Path.join(path, "dead")
 
     case list_ids(committed) do
       [] ->
         {:empty}
 
-      [id | _] ->
-        from = Path.join(committed, id)
-        to = Path.join(path, "processing")
+      ids ->
+        Enum.reduce_while(ids, {:empty}, fn id, _acc ->
+          from = Path.join(committed, id)
 
-        case load_message(from, id) do
-          {:ok, message} ->
-            :ok = File.rename(from, Path.join(to, id))
-            {:ok, message}
+          case load_message(from, id) do
+            {:ok, message} ->
+              to = Path.join(processing, id)
 
-          _ ->
-            {:empty}
-        end
+              case File.rename(from, to) do
+                :ok ->
+                  message = %{
+                    message
+                    | raw_path: Path.join(to, "raw.eml"),
+                      meta_path: Path.join(to, "meta.json")
+                  }
+
+                  {:halt, {:ok, message}}
+
+                {:error, reason} ->
+                  move_to_dead(from, dead, id, {:rename_failed, reason})
+                  {:cont, {:empty}}
+              end
+
+            {:error, reason} ->
+              move_to_dead(from, dead, id, reason)
+              {:cont, {:empty}}
+          end
+        end)
     end
   end
 
@@ -252,21 +288,34 @@ defmodule Incoming.Queue.Disk do
     meta_path = Path.join(dir, "meta.json")
     raw_path = Path.join(dir, "raw.eml")
 
-    with {:ok, meta} <- File.read(meta_path),
-         {:ok, decoded} <- Jason.decode(meta) do
-      received_at = parse_time(decoded["received_at"])
+    case File.stat(raw_path) do
+      {:ok, _} ->
+        case File.read(meta_path) do
+          {:ok, meta} ->
+            case Jason.decode(meta) do
+              {:ok, decoded} ->
+                received_at = parse_time(decoded["received_at"])
 
-      {:ok,
-       %Incoming.Message{
-         id: id,
-         mail_from: decoded["mail_from"],
-         rcpt_to: decoded["rcpt_to"] || [],
-         received_at: received_at,
-         raw_path: raw_path,
-         meta_path: meta_path
-       }}
-    else
-      _ -> {:error, :invalid_metadata}
+                {:ok,
+                 %Incoming.Message{
+                   id: id,
+                   mail_from: decoded["mail_from"],
+                   rcpt_to: decoded["rcpt_to"] || [],
+                   received_at: received_at,
+                   raw_path: raw_path,
+                   meta_path: meta_path
+                 }}
+
+              _ ->
+                {:error, :invalid_metadata}
+            end
+
+          _ ->
+            {:error, :missing_meta}
+        end
+
+      _ ->
+        {:error, :missing_raw}
     end
   end
 
@@ -282,5 +331,24 @@ defmodule Incoming.Queue.Disk do
   defp state_path do
     Application.get_env(:incoming, :queue_opts, path: "/tmp/incoming")
     |> Keyword.get(:path, "/tmp/incoming")
+  end
+
+  defp move_to_dead(from, dead_root, id, reason) do
+    dead_dir = Path.join(dead_root, id)
+
+    if File.exists?(dead_dir) do
+      _ = File.rm_rf(dead_dir)
+    end
+
+    if File.dir?(from) do
+      case File.rename(from, dead_dir) do
+        :ok -> write_dead_reason(dead_dir, reason)
+        _ -> :ok
+      end
+    else
+      _ = File.mkdir_p(dead_dir)
+      _ = File.rename(from, Path.join(dead_dir, "entry"))
+      write_dead_reason(dead_dir, reason)
+    end
   end
 end

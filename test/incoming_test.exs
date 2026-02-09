@@ -1782,6 +1782,40 @@ defmodule IncomingTest do
     restart_app()
   end
 
+  test "delivery adapter exception is treated as retry (no stuck processing)", %{tmp: tmp} do
+    Application.put_env(:incoming, :delivery, IncomingTest.DummyAdapter)
+    Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
+
+    IncomingTest.DummyAdapter.set_mode(:raise)
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+
+    {:ok, pid} =
+      Incoming.Delivery.Worker.start_link(
+        poll_interval: 10_000,
+        max_attempts: 3,
+        base_backoff: 1,
+        max_backoff: 1
+      )
+
+    meta_path = Path.join([tmp, "committed", message.id, "meta.json"])
+
+    :ok =
+      wait_until(
+        fn ->
+          File.exists?(meta_path) and Jason.decode!(File.read!(meta_path))["attempts"] == 1
+        end,
+        200
+      )
+
+    refute File.exists?(Path.join([tmp, "processing", message.id]))
+
+    GenServer.stop(pid)
+    Application.put_env(:incoming, :delivery, nil)
+  end
+
   defp send_line(socket, line) do
     :ok = :gen_tcp.send(socket, line <> "\r\n")
   end

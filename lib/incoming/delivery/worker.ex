@@ -33,7 +33,17 @@ defmodule Incoming.Delivery.Worker do
     if adapter do
       case queue.dequeue() do
         {:ok, message} ->
-          result = Incoming.Delivery.Dispatcher.deliver_sync(message)
+          result =
+            try do
+              Incoming.Delivery.Dispatcher.deliver_sync(message)
+            rescue
+              e ->
+                {:retry, {:exception, e.__struct__, Exception.message(e)}}
+            catch
+              kind, reason ->
+                {:retry, {kind, reason}}
+            end
+
           new_state = handle_result(queue, message, result, state)
           schedule_tick(new_state.interval)
           {:noreply, new_state}

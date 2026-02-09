@@ -12,6 +12,7 @@ defmodule IncomingTest.DummyAdapter do
       :ok -> :ok
       :retry -> {:retry, :temporary}
       :reject -> {:reject, :permanent}
+      :raise -> raise "boom"
     end
   end
 end

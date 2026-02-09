@@ -52,6 +52,17 @@ defmodule IncomingTest do
     assert headers["subject"] == "Trim Me"
   end
 
+  test "message headers lower-case keys and trim", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "SuBjEcT: Mixed\r\nX-Thing:  spaced \r\n\r\nBody\r\n"
+
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    headers = Incoming.Message.headers(message)
+    assert headers["subject"] == "Mixed"
+    assert headers["x-thing"] == "spaced"
+  end
+
   test "message headers ignore malformed lines", %{tmp: tmp} do
     from = "sender@example.com"
     to = ["rcpt@example.com"]
@@ -116,6 +127,19 @@ defmodule IncomingTest do
     dead = Path.join(tmp, "dead")
     assert File.exists?(Path.join(dead, message.id))
     assert File.exists?(Path.join([dead, message.id, "dead.json"]))
+  end
+
+  test "queue depth remains zero after reject", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+
+    assert Incoming.Queue.Disk.depth() == 0
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    assert Incoming.Queue.Disk.depth() == 1
+    assert {:ok, ^message} = Incoming.Queue.Disk.dequeue()
+    :ok = Incoming.Queue.Disk.nack(message.id, :reject, :permanent)
+    assert Incoming.Queue.Disk.depth() == 0
   end
 
   test "queue nack retry requeues", %{tmp: tmp} do
@@ -1062,6 +1086,7 @@ defmodule IncomingTest do
     dead_json = Path.join([tmp, "dead", message.id, "dead.json"])
     assert {:ok, payload} = File.read(dead_json)
     assert payload =~ "max_attempts"
+    assert payload =~ "temporary"
 
     Application.put_env(:incoming, :delivery, nil)
     Application.put_env(:incoming, :delivery_opts, workers: 1, poll_interval: 1_000)

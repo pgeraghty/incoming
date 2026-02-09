@@ -240,12 +240,44 @@ defmodule Incoming.Queue.Disk do
     path = state_path()
     ensure_dirs(path)
     processing = Path.join(path, "processing")
+    committed = Path.join(path, "committed")
 
     for id <- list_ids(processing) do
       File.rename(Path.join(processing, id), Path.join([path, "committed", id]))
     end
 
+    # Clean up crash leftovers in committed entries.
+    for id <- list_ids(committed) do
+      base = Path.join(committed, id)
+
+      if File.dir?(base) do
+        raw = Path.join(base, "raw.eml")
+        raw_tmp = Path.join(base, "raw.tmp")
+        meta = Path.join(base, "meta.json")
+        meta_tmp = Path.join(base, "meta.tmp")
+
+        _ = recover_tmp(raw_tmp, raw)
+        _ = recover_tmp(meta_tmp, meta)
+      end
+    end
+
     :ok
+  end
+
+  defp recover_tmp(tmp_path, final_path) do
+    cond do
+      File.exists?(final_path) ->
+        :ok
+
+      File.exists?(tmp_path) ->
+        case File.rename(tmp_path, final_path) do
+          :ok -> :ok
+          _ -> :ok
+        end
+
+      true ->
+        :ok
+    end
   end
 
   defp list_ids(dir) do

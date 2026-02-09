@@ -925,6 +925,32 @@ defmodule IncomingTest do
     assert File.exists?(Path.join([tmp, "committed", "stray"]))
   end
 
+  test "queue recover promotes raw.tmp and meta.tmp to final names", %{tmp: tmp} do
+    id = "tmp-promote-#{System.unique_integer([:positive])}"
+    base = Path.join([tmp, "committed", id])
+    File.mkdir_p!(base)
+
+    File.write!(Path.join(base, "raw.tmp"), "Subject: Ok\r\n\r\nBody\r\n")
+
+    File.write!(
+      Path.join(base, "meta.tmp"),
+      Jason.encode!(%{
+        "id" => id,
+        "mail_from" => "sender@example.com",
+        "rcpt_to" => ["rcpt@example.com"],
+        "received_at" => DateTime.utc_now() |> DateTime.to_iso8601()
+      })
+    )
+
+    assert :ok = Incoming.Queue.Disk.recover()
+
+    assert File.exists?(Path.join(base, "raw.eml"))
+    assert File.exists?(Path.join(base, "meta.json"))
+
+    assert {:ok, message} = Incoming.Queue.Disk.dequeue()
+    assert message.id == id
+  end
+
   test "queue depth telemetry emits periodic event", %{tmp: tmp} do
     id = "incoming-test-queue-depth-#{System.unique_integer([:positive])}"
     parent = self()

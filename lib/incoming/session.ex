@@ -124,7 +124,7 @@ defmodule Incoming.Session do
       :ok ->
         if byte_size(data) > state.max_message_size do
           emit(:rejected, %{reason: :message_too_large})
-          {:error, resp(552, "Message too large"), state}
+          {:error, resp(552, "Message too large"), reset_envelope(state)}
         else
           enqueue_opts = Keyword.put(state.queue_opts, :max_message_size, state.max_message_size)
 
@@ -140,23 +140,27 @@ defmodule Incoming.Session do
               _ = policy_check(:message_complete, state)
               Incoming.Delivery.Dispatcher.dispatch(message)
               emit(:accepted, %{id: id})
-              {:ok, "Ok: queued as <#{id}>", state}
+              {:ok, "Ok: queued as <#{id}>", reset_envelope(state)}
 
             {:error, :message_too_large} ->
               emit(:rejected, %{reason: :message_too_large})
-              {:error, resp(552, "Message too large"), state}
+              {:error, resp(552, "Message too large"), reset_envelope(state)}
 
             {:error, reason} ->
               Logger.error("queue_error=#{inspect(reason)}")
               emit(:rejected, %{reason: reason})
-              {:error, resp(451, "Temporary failure"), state}
+              {:error, resp(451, "Temporary failure"), reset_envelope(state)}
           end
         end
 
       {:reject, code, message} ->
         emit(:rejected, %{reason: message})
-        {:error, resp(code, message), state}
+        {:error, resp(code, message), reset_envelope(state)}
     end
+  end
+
+  defp reset_envelope(state) do
+    %{state | mail_from: nil, rcpt_to: []}
   end
 
   @impl true

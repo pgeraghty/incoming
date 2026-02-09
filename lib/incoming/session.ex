@@ -84,11 +84,11 @@ defmodule Incoming.Session do
     state = %{state | rcpt_to: state.rcpt_to ++ [to]}
 
     if length(state.rcpt_to) > state.max_recipients do
-      {:error, "452 Too many recipients", state}
+      {:error, resp(452, "Too many recipients"), state}
     else
     case policy_check(:rcpt_to, state) do
       :ok -> {:ok, state}
-      {:reject, code, message} -> {:error, "#{code} #{message}", state}
+      {:reject, code, message} -> {:error, resp(code, message), state}
     end
     end
   end
@@ -104,7 +104,7 @@ defmodule Incoming.Session do
       :ok ->
         if byte_size(data) > state.max_message_size do
           emit(:rejected, %{reason: :message_too_large})
-          {:error, "552 Message too large", state}
+          {:error, resp(552, "Message too large"), state}
         else
           case state.queue.enqueue(from, to, data, state.queue_opts) do
             {:ok, %Incoming.Message{id: id} = message} ->
@@ -116,13 +116,13 @@ defmodule Incoming.Session do
             {:error, reason} ->
               Logger.error("queue_error=#{inspect(reason)}")
               emit(:rejected, %{reason: reason})
-              {:error, "451 Temporary failure", state}
+              {:error, resp(451, "Temporary failure"), state}
           end
         end
 
       {:reject, code, message} ->
         emit(:rejected, %{reason: message})
-        {:error, "#{code} #{message}", state}
+        {:error, resp(code, message), state}
     end
   end
 
@@ -133,7 +133,7 @@ defmodule Incoming.Session do
 
   @impl true
   def handle_VRFY(_address, state) do
-    {:error, "252 VRFY disabled", state}
+    {:error, resp(252, "VRFY disabled"), state}
   end
 
   @impl true
@@ -214,4 +214,6 @@ defmodule Incoming.Session do
   defp emit(event, meta) do
     Incoming.Metrics.emit([:incoming, :session, event], %{count: 1}, meta)
   end
+
+  defp resp(code, message), do: "#{code} #{message}"
 end

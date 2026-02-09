@@ -21,23 +21,28 @@ defmodule Incoming.Message do
 
   def headers(%__MODULE__{raw_path: path}) do
     path
-    |> File.stream!([], 1024)
-    |> Enum.reduce_while(%{}, fn line, acc ->
-      cond do
-        line == "\r\n" or line == "\n" ->
-          {:halt, acc}
+    |> File.read!()
+    |> split_headers()
+    |> parse_headers()
+  end
 
-        String.starts_with?(line, " ") or String.starts_with?(line, "\t") ->
-          {:cont, acc}
+  defp split_headers(content) do
+    case String.split(content, "\r\n\r\n", parts: 2) do
+      [headers, _body] -> headers
+      [headers] -> headers
+    end
+  end
 
-        true ->
-          case String.split(line, ":", parts: 2) do
-            [key, value] ->
-              {:cont, Map.put(acc, String.downcase(String.trim(key)), String.trim(value))}
+  defp parse_headers(headers) do
+    headers
+    |> String.split(~r/\r?\n/, trim: true)
+    |> Enum.reduce(%{}, fn line, acc ->
+      case String.split(line, ":", parts: 2) do
+        [key, value] ->
+          Map.put(acc, String.downcase(String.trim(key)), String.trim(value))
 
-            _ ->
-              {:cont, acc}
-          end
+        _ ->
+          acc
       end
     end)
   end

@@ -5,11 +5,11 @@ Please report weaknesses, flaws, edge cases, or unexpected behavior via GitHub I
 
 # Incoming
 
-Production-grade inbound SMTP server library for Elixir.
+Production-grade inbound SMTP server library for Elixir. Inbound-only, OTP-native, and designed to replace Postfix for controlled environments.
 
 ## Status
 
-This is an early placeholder package to reserve the name on Hex. The implementation is in progress.
+Early implementation, actively evolving. Core SMTP, queue, delivery, policies, TLS, and telemetry are in place; streaming DATA is not yet implemented.
 
 ## Installation
 
@@ -23,12 +23,23 @@ def deps do
 end
 ```
 
-## Usage
+## Quickstart
 
 ```elixir
-# Placeholder API — subject to change
-Incoming.hello()
+config :incoming,
+  listeners: [
+    %{
+      name: :default,
+      port: 2525,
+      tls: :disabled
+    }
+  ],
+  queue: Incoming.Queue.Disk,
+  queue_opts: [path: "/tmp/incoming", fsync: true],
+  delivery: MyApp.IncomingAdapter
 ```
+
+Then start your application and point a test SMTP client at `localhost:2525`.
 
 ## Policies (Early)
 
@@ -85,6 +96,12 @@ Return values:
 
 - SMTP DATA is fully buffered in memory by `gen_smtp` before we write to disk.
 - Large messages can consume significant memory; streaming support is planned.
+
+## Testing
+
+```bash
+mix test
+```
 
 ## TLS (Early)
 

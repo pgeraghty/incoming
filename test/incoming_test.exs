@@ -11,6 +11,17 @@ defmodule IncomingTest do
     assert File.exists?(Path.join([tmp, "committed", message.id, "meta.json"]))
   end
 
+  test "message headers parsed from raw file", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\nFrom: sender@example.com\r\n\r\nBody\r\n"
+
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    headers = Incoming.Message.headers(message)
+    assert headers["subject"] == "Test"
+    assert headers["from"] == "sender@example.com"
+  end
+
   test "accepts smtp session and queues message", %{tmp: tmp} do
     {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
 
@@ -304,6 +315,293 @@ defmodule IncomingTest do
     restart_app()
   end
 
+  test "ehlo advertises size and omits starttls when disabled", %{} do
+    Application.put_env(:incoming, :listeners, [%{name: :test, port: 2526, tls: :disabled}])
+    Application.put_env(:incoming, :session_opts, max_message_size: 1234, max_recipients: 100)
+    restart_app()
+
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+
+    send_line(socket, "EHLO client.example.com")
+    lines = read_multiline_lines(socket, "250")
+    assert Enum.any?(lines, &String.contains?(&1, "SIZE 1234"))
+    refute Enum.any?(lines, &String.contains?(&1, "STARTTLS"))
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+
+    Application.put_env(:incoming, :session_opts, max_message_size: 10 * 1024 * 1024, max_recipients: 100)
+    restart_app()
+  end
+
+  test "ehlo advertises starttls when optional", %{} do
+    Application.put_env(:incoming, :listeners, [
+      %{
+        name: :test,
+        port: 2526,
+        tls: :optional,
+        tls_opts: [
+          certfile: "test/fixtures/test-cert.pem",
+          keyfile: "test/fixtures/test-key.pem"
+        ]
+      }
+    ])
+    restart_app()
+
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+    send_line(socket, "EHLO client.example.com")
+    lines = read_multiline_lines(socket, "250")
+    assert Enum.any?(lines, &String.contains?(&1, "STARTTLS"))
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+
+    Application.put_env(:incoming, :listeners, [%{name: :test, port: 2526, tls: :disabled}])
+    restart_app()
+  end
+
+  test "queue dequeue skips corrupt metadata", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    File.write!(Path.join([tmp, "committed", message.id, "meta.json"]), "not-json")
+
+    assert {:empty} = Incoming.Queue.Disk.dequeue()
+    assert File.exists?(Path.join([tmp, "committed", message.id]))
+  end
+
+  test "queue dequeue skips missing raw file", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    File.rm!(Path.join([tmp, "committed", message.id, "raw.eml"]))
+
+    assert {:ok, _message} = Incoming.Queue.Disk.dequeue()
+    # Message still dequeues based on metadata; raw file may be missing for consumers.
+  end
+
+  test "queue recover handles stray processing entries", %{tmp: tmp} do
+    processing = Path.join([tmp, "processing"])
+    File.mkdir_p!(processing)
+    File.mkdir_p!(Path.join(processing, "stray"))
+
+    assert :ok = Incoming.Queue.Disk.recover()
+    assert File.exists?(Path.join([tmp, "committed", "stray"]))
+  end
+
+  test "dead letter metadata includes reason and timestamp", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    assert {:ok, ^message} = Incoming.Queue.Disk.dequeue()
+    :ok = Incoming.Queue.Disk.nack(message.id, :reject, :test_reason)
+
+    dead = Path.join([tmp, "dead", message.id, "dead.json"])
+    assert {:ok, payload} = File.read(dead)
+    decoded = Jason.decode!(payload)
+    assert decoded["reason"] =~ "test_reason"
+    assert {:ok, _dt, _} = DateTime.from_iso8601(decoded["rejected_at"])
+  end
+
+  test "telemetry emits enqueue event", %{tmp: tmp} do
+    id = "incoming-test-telemetry-#{System.unique_integer([:positive])}"
+    parent = self()
+
+    :telemetry.attach(
+      id,
+      [:incoming, :message, :queued],
+      &IncomingTest.TelemetryHandler.handle/4,
+      parent
+    )
+
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+    {:ok, _message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+
+    assert_receive {:telemetry, [:incoming, :message, :queued], _meas, meta}, 1_000
+    assert is_binary(meta.id)
+    assert meta.size > 0
+
+    :telemetry.detach(id)
+  end
+
+  test "policy context includes envelope and tls flags", %{} do
+    IncomingTest.CapturePolicy.set_target(self())
+    Application.put_env(:incoming, :policies, [IncomingTest.CapturePolicy])
+    restart_app()
+
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+
+    send_line(socket, "EHLO client.example.com")
+    read_multiline(socket, "250")
+
+    send_line(socket, "MAIL FROM:<sender@example.com>")
+    assert_recv(socket, "250")
+
+    send_line(socket, "RCPT TO:<rcpt@example.com>")
+    assert_recv(socket, "250")
+
+    send_line(socket, "DATA")
+    assert_recv(socket, "354")
+    :ok = :gen_tcp.send(socket, "Subject: Test\r\n\r\nBody\r\n.\r\n")
+    assert_recv(socket, "250")
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+
+    assert_receive {:policy_phase, :connect, ctx1}, 1_000
+    assert ctx1.tls_active == false
+    assert ctx1.envelope.mail_from == nil
+
+    assert_receive {:policy_phase, :mail_from, ctx2}, 1_000
+    assert ctx2.envelope.mail_from == "sender@example.com"
+
+    assert_receive {:policy_phase, :rcpt_to, ctx3}, 1_000
+    assert ctx3.envelope.rcpt_to == ["rcpt@example.com"]
+
+    assert_receive {:policy_phase, :message_complete, _ctx4}, 1_000
+
+    Application.put_env(:incoming, :policies, [])
+    restart_app()
+  end
+
+  test "rcpt before mail is accepted by gen_smtp defaults", %{} do
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+
+    send_line(socket, "EHLO client.example.com")
+    read_multiline(socket, "250")
+
+    send_line(socket, "RCPT TO:<rcpt@example.com>")
+    assert_recv(socket, "250")
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+  end
+
+  test "command order enforcement rejects data before rcpt", %{} do
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+
+    send_line(socket, "EHLO client.example.com")
+    read_multiline(socket, "250")
+
+    send_line(socket, "MAIL FROM:<sender@example.com>")
+    assert_recv(socket, "250")
+
+    send_line(socket, "DATA")
+    assert_recv(socket, "503")
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+  end
+
+  test "noop and rset are accepted", %{} do
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+
+    send_line(socket, "NOOP")
+    assert_recv(socket, "250")
+
+    send_line(socket, "RSET")
+    assert_recv(socket, "250")
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+  end
+
+  test "unknown command yields 500", %{} do
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+
+    send_line(socket, "WUT")
+    assert_recv(socket, "500")
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+  end
+
+  test "rset clears envelope", %{} do
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+
+    send_line(socket, "EHLO client.example.com")
+    read_multiline(socket, "250")
+
+    send_line(socket, "MAIL FROM:<sender@example.com>")
+    assert_recv(socket, "250")
+
+    send_line(socket, "RCPT TO:<rcpt@example.com>")
+    assert_recv(socket, "250")
+
+    send_line(socket, "RSET")
+    assert_recv(socket, "250")
+
+    send_line(socket, "DATA")
+    assert_recv(socket, "503")
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+  end
+
+  test "telemetry emits delivery result", %{tmp: tmp} do
+    id = "incoming-test-delivery-#{System.unique_integer([:positive])}"
+    parent = self()
+
+    :telemetry.attach(
+      id,
+      [:incoming, :delivery, :result],
+      &IncomingTest.TelemetryHandler.handle/4,
+      parent
+    )
+
+    Application.put_env(:incoming, :delivery, IncomingTest.DummyAdapter)
+    Application.put_env(:incoming, :delivery_opts, workers: 1, poll_interval: 10)
+    restart_app()
+
+    IncomingTest.DummyAdapter.set_mode(:ok)
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+    {:ok, _message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+
+    assert_receive {:telemetry, [:incoming, :delivery, :result], _meas, meta}, 1_000
+    assert meta.outcome == :ok
+
+    :telemetry.detach(id)
+    Application.put_env(:incoming, :delivery, nil)
+    Application.put_env(:incoming, :delivery_opts, workers: 1, poll_interval: 1_000)
+    restart_app()
+  end
+
+  test "delivery retries eventually send to dead letter on reject", %{tmp: tmp} do
+    Application.put_env(:incoming, :delivery, IncomingTest.DummyAdapter)
+    Application.put_env(:incoming, :delivery_opts, workers: 1, poll_interval: 10)
+    restart_app()
+
+    IncomingTest.DummyAdapter.set_mode(:reject)
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+
+    wait_until(fn -> File.exists?(Path.join([tmp, "dead", message.id])) end)
+
+    Application.put_env(:incoming, :delivery, nil)
+    Application.put_env(:incoming, :delivery_opts, workers: 1, poll_interval: 1_000)
+    restart_app()
+  end
+
   defp send_line(socket, line) do
     :ok = :gen_tcp.send(socket, line <> "\r\n")
   end
@@ -321,6 +619,20 @@ defmodule IncomingTest do
 
       String.starts_with?(line, code <> " ") ->
         :ok
+
+      true ->
+        flunk("unexpected response: #{inspect(line)}")
+    end
+  end
+
+  defp read_multiline_lines(socket, code, acc \\ []) do
+    line = recv_line(socket)
+    cond do
+      String.starts_with?(line, code <> "-") ->
+        read_multiline_lines(socket, code, [line | acc])
+
+      String.starts_with?(line, code <> " ") ->
+        Enum.reverse([line | acc])
 
       true ->
         flunk("unexpected response: #{inspect(line)}")

@@ -153,8 +153,10 @@ defmodule Incoming.Session do
       Incoming.Policy.Pipeline.run(policies, %{
         phase: phase,
         peer: state.peer,
-        mail_from: state.mail_from,
-        rcpt_to: state.rcpt_to,
+        envelope: %Incoming.Envelope{
+          mail_from: state.mail_from,
+          rcpt_to: state.rcpt_to
+        },
         max_message_size: state.max_message_size,
         seen_helo: state.seen_helo
       })

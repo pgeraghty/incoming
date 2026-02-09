@@ -1,6 +1,8 @@
 defmodule Incoming.Queue.Disk do
   @moduledoc false
 
+  @behaviour Incoming.Queue
+
   use GenServer
 
   def start_link(opts) do
@@ -15,6 +17,7 @@ defmodule Incoming.Queue.Disk do
     {:ok, %{path: path, fsync: fsync}}
   end
 
+  @impl true
   def enqueue(from, to, data, opts) do
     path = Keyword.get(opts, :path, "/tmp/incoming")
     fsync = Keyword.get(opts, :fsync, true)
@@ -39,15 +42,23 @@ defmodule Incoming.Queue.Disk do
       :ok = fsync_dir(base)
     end
 
-    {:ok,
-     %Incoming.Message{
-       id: id,
-       mail_from: from,
-       rcpt_to: to,
-       received_at: received_at,
-       raw_path: raw_path,
-       meta_path: meta_path
-     }}
+    message = %Incoming.Message{
+      id: id,
+      mail_from: from,
+      rcpt_to: to,
+      received_at: received_at,
+      raw_path: raw_path,
+      meta_path: meta_path
+    }
+
+    if Code.ensure_loaded?(:telemetry) and function_exported?(:telemetry, :execute, 3) do
+      :telemetry.execute([:incoming, :message, :queued], %{count: 1}, %{
+        id: id,
+        size: byte_size(data)
+      })
+    end
+
+    {:ok, message}
   end
 
   defp fsync_dir(dir) do
@@ -61,4 +72,19 @@ defmodule Incoming.Queue.Disk do
         :ok
     end
   end
+
+  @impl true
+  def dequeue, do: {:empty}
+
+  @impl true
+  def ack(_message_id), do: :ok
+
+  @impl true
+  def nack(_message_id, _action), do: :ok
+
+  @impl true
+  def depth, do: 0
+
+  @impl true
+  def recover, do: :ok
 end

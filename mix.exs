@@ -28,6 +28,7 @@ defmodule Incoming.MixProject do
     [
       {:jason, "~> 1.4"},
       {:gen_smtp, "~> 1.2"},
+      {:telemetry, "~> 1.2"},
       {:ex_doc, ">= 0.0.0", only: :dev, runtime: false}
     ]
   end

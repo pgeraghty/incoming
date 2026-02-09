@@ -6,9 +6,9 @@ defmodule IncomingTest do
     to = ["rcpt@example.com"]
     data = "Subject: Test\r\n\r\nBody\r\n"
 
-    {:ok, id} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
-    assert File.exists?(Path.join([tmp, "committed", id, "raw.eml"]))
-    assert File.exists?(Path.join([tmp, "committed", id, "meta.json"]))
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    assert File.exists?(Path.join([tmp, "committed", message.id, "raw.eml"]))
+    assert File.exists?(Path.join([tmp, "committed", message.id, "meta.json"]))
   end
 
   test "accepts smtp session and queues message", %{tmp: tmp} do

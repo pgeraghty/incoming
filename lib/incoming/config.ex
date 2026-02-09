@@ -31,4 +31,8 @@ defmodule Incoming.Config do
   def session_opts do
     Application.get_env(:incoming, :session_opts, @default_session_opts)
   end
+
+  def policies do
+    Application.get_env(:incoming, :policies, [])
+  end
 end

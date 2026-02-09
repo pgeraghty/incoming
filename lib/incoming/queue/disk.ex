@@ -25,20 +25,29 @@ defmodule Incoming.Queue.Disk do
 
     raw_path = Path.join(base, "raw.eml")
     meta_path = Path.join(base, "meta.json")
+    received_at = DateTime.utc_now()
 
     File.write!(raw_path, data)
     File.write!(meta_path, Jason.encode!(%{
       id: id,
       mail_from: from,
       rcpt_to: to,
-      received_at: DateTime.utc_now() |> DateTime.to_iso8601()
+      received_at: received_at |> DateTime.to_iso8601()
     }))
 
     if fsync do
       :ok = fsync_dir(base)
     end
 
-    {:ok, id}
+    {:ok,
+     %Incoming.Message{
+       id: id,
+       mail_from: from,
+       rcpt_to: to,
+       received_at: received_at,
+       raw_path: raw_path,
+       meta_path: meta_path
+     }}
   end
 
   defp fsync_dir(dir) do

@@ -26,22 +26,35 @@ defmodule Incoming.Session do
       max_message_size: max_message_size
     }
 
-    {:ok, banner, state}
+    case policy_check(:connect, state) do
+      :ok -> {:ok, banner, state}
+      {:reject, code, message} -> {:stop, :policy_reject, "#{code} #{message}"}
+    end
   end
 
   @impl true
   def handle_HELO(_hostname, state) do
-    {:ok, state.max_message_size, state}
+    case policy_check(:helo, state) do
+      :ok -> {:ok, state.max_message_size, state}
+      {:reject, code, message} -> {:error, "#{code} #{message}", state}
+    end
   end
 
   @impl true
   def handle_EHLO(_hostname, extensions, state) do
-    {:ok, size_extension(extensions, state.max_message_size), state}
+    case policy_check(:helo, state) do
+      :ok -> {:ok, size_extension(extensions, state.max_message_size), state}
+      {:reject, code, message} -> {:error, "#{code} #{message}", state}
+    end
   end
 
   @impl true
   def handle_MAIL(from, state) do
-    {:ok, %{state | mail_from: from, rcpt_to: []}}
+    state = %{state | mail_from: from, rcpt_to: []}
+    case policy_check(:mail_from, state) do
+      :ok -> {:ok, state}
+      {:reject, code, message} -> {:error, "#{code} #{message}", state}
+    end
   end
 
   @impl true
@@ -51,7 +64,11 @@ defmodule Incoming.Session do
 
   @impl true
   def handle_RCPT(to, state) do
-    {:ok, %{state | rcpt_to: state.rcpt_to ++ [to]}}
+    state = %{state | rcpt_to: state.rcpt_to ++ [to]}
+    case policy_check(:rcpt_to, state) do
+      :ok -> {:ok, state}
+      {:reject, code, message} -> {:error, "#{code} #{message}", state}
+    end
   end
 
   @impl true
@@ -61,13 +78,21 @@ defmodule Incoming.Session do
 
   @impl true
   def handle_DATA(from, to, data, state) do
-    case state.queue.enqueue(from, to, data, state.queue_opts) do
-      {:ok, id} ->
-        {:ok, "Ok: queued as <#{id}>", state}
+    case policy_check(:data_start, state) do
+      :ok ->
+        case state.queue.enqueue(from, to, data, state.queue_opts) do
+          {:ok, %Incoming.Message{id: id} = message} ->
+            _ = policy_check(:message_complete, state)
+            Incoming.Delivery.Dispatcher.dispatch(message)
+            {:ok, "Ok: queued as <#{id}>", state}
 
-      {:error, reason} ->
-        Logger.error("queue_error=#{inspect(reason)}")
-        {:error, "451 Temporary failure", state}
+          {:error, reason} ->
+            Logger.error("queue_error=#{inspect(reason)}")
+            {:error, "451 Temporary failure", state}
+        end
+
+      {:reject, code, message} ->
+        {:error, "#{code} #{message}", state}
     end
   end
 
@@ -116,6 +141,22 @@ defmodule Incoming.Session do
     queue_opts = Keyword.get(options, :queue_opts, [])
     max_message_size = Keyword.get(options, :max_message_size, 10 * 1024 * 1024)
     {queue, queue_opts, max_message_size}
+  end
+
+  defp policy_check(phase, state) do
+    policies = Incoming.Config.policies()
+
+    if policies == [] do
+      :ok
+    else
+      Incoming.Policy.Pipeline.run(policies, %{
+        phase: phase,
+        peer: state.peer,
+        mail_from: state.mail_from,
+        rcpt_to: state.rcpt_to,
+        max_message_size: state.max_message_size
+      })
+    end
   end
 
   defp size_extension(extensions, max_size) do

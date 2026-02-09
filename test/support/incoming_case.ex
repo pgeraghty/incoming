@@ -7,6 +7,8 @@ defmodule IncomingCase do
     tmp = Path.join(System.tmp_dir!(), "incoming_test")
     Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
     Application.put_env(:incoming, :listeners, [%{name: :test, port: 2526, tls: :disabled}])
+    Application.put_env(:incoming, :policies, [])
+    Application.put_env(:incoming, :delivery, nil)
     {:ok, _} = Application.ensure_all_started(:gen_smtp)
 
     started =

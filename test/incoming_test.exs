@@ -181,6 +181,7 @@ defmodule IncomingTest do
     :ok = Incoming.Queue.Disk.recover()
     committed = Path.join(tmp, "committed")
     assert File.exists?(Path.join(committed, message.id))
+    assert Incoming.Queue.Disk.depth() == 1
   end
 
   test "delivery worker ack/retry/reject", %{tmp: tmp} do
@@ -843,6 +844,17 @@ defmodule IncomingTest do
     assert_recv(socket, "220")
 
     send_line(socket, "HELO")
+    assert_recv(socket, "501")
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+  end
+
+  test "invalid helo with extra spaces yields error", %{} do
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+
+    send_line(socket, "HELO    ")
     assert_recv(socket, "501")
 
     send_line(socket, "QUIT")

@@ -110,9 +110,8 @@ defmodule Incoming.Session do
   end
 
   defp queue_from_opts(options) do
-    callback_opts = Keyword.get(options, :callbackoptions, [])
-    queue = Keyword.get(callback_opts, :queue, Incoming.Queue.Disk)
-    queue_opts = Keyword.get(callback_opts, :queue_opts, [])
+    queue = Keyword.get(options, :queue, Incoming.Queue.Disk)
+    queue_opts = Keyword.get(options, :queue_opts, [])
     {queue, queue_opts}
   end
 end

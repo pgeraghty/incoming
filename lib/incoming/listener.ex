@@ -1,14 +1,7 @@
 defmodule Incoming.Listener do
   @moduledoc false
 
-  def child_spec(%{name: name} = listener) do
-    %{
-      id: {__MODULE__, name},
-      start: {__MODULE__, :start_link, [listener]}
-    }
-  end
-
-  def start_link(listener) do
+  def child_spec(%{name: _name} = listener) do
     name = Map.fetch!(listener, :name)
     port = Map.get(listener, :port, 2525)
     domain = Map.get(listener, :domain, smtp_domain())
@@ -26,7 +19,7 @@ defmodule Incoming.Listener do
       {:sessionoptions, session_opts}
     ]
 
-    :gen_smtp_server.start(name, Incoming.Session, opts)
+    :gen_smtp_server.child_spec(name, Incoming.Session, opts)
   end
 
   defp smtp_domain do

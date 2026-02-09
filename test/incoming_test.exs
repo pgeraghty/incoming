@@ -1213,6 +1213,43 @@ defmodule IncomingTest do
     restart_app()
   end
 
+  test "delivery retry telemetry emits reason on retry", %{tmp: tmp} do
+    id = "incoming-test-delivery-retry-reason-#{System.unique_integer([:positive])}"
+    parent = self()
+
+    :telemetry.attach(
+      id,
+      [:incoming, :delivery, :result],
+      &IncomingTest.TelemetryHandler.handle/4,
+      parent
+    )
+
+    Application.put_env(:incoming, :delivery, IncomingTest.DummyAdapter)
+    Application.put_env(:incoming, :delivery_opts,
+      workers: 1,
+      poll_interval: 10,
+      max_attempts: 2,
+      base_backoff: 1,
+      max_backoff: 1
+    )
+    restart_app()
+
+    IncomingTest.DummyAdapter.set_mode(:retry)
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+    {:ok, _message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+
+    assert_receive {:telemetry, [:incoming, :delivery, :result], _meas, meta}, 1_000
+    assert meta.outcome in [:retry, :reject]
+    assert meta.reason == :temporary
+
+    :telemetry.detach(id)
+    Application.put_env(:incoming, :delivery, nil)
+    Application.put_env(:incoming, :delivery_opts, workers: 1, poll_interval: 1_000)
+    restart_app()
+  end
+
   test "delivery retries eventually send to dead letter on reject", %{tmp: tmp} do
     Application.put_env(:incoming, :delivery, IncomingTest.DummyAdapter)
     Application.put_env(:incoming, :delivery_opts, workers: 1, poll_interval: 10)

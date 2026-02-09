@@ -68,6 +68,7 @@ defmodule Incoming.Queue.Disk do
       case size do
         {:too_large, _size} ->
           File.rm_rf!(base_tmp)
+          emit_enqueue_error(id, :message_too_large, %{attempted_size: elem(size, 1)})
           {:error, :message_too_large}
 
         size when is_integer(size) ->
@@ -80,6 +81,7 @@ defmodule Incoming.Queue.Disk do
 
             {:error, reason} ->
               File.rm_rf!(base_tmp)
+              emit_enqueue_error(id, reason)
               {:error, reason}
           end
           |> case do
@@ -132,11 +134,13 @@ defmodule Incoming.Queue.Disk do
 
                     {:error, reason} ->
                       File.rm_rf!(base_tmp)
+                      emit_enqueue_error(id, reason)
                       {:error, reason}
                   end
 
                 {:error, reason} ->
                   File.rm_rf!(base_tmp)
+                  emit_enqueue_error(id, reason)
                   {:error, reason}
               end
           end
@@ -144,8 +148,17 @@ defmodule Incoming.Queue.Disk do
     rescue
       e ->
         _ = File.rm_rf(base_tmp)
+        emit_enqueue_error(id, {:exception, e.__struct__, Exception.message(e)})
         {:error, e}
     end
+  end
+
+  defp emit_enqueue_error(id, reason, meta \\ %{}) do
+    Incoming.Metrics.emit(
+      [:incoming, :message, :enqueue_error],
+      %{count: 1},
+      Map.merge(%{id: id, reason: reason}, meta)
+    )
   end
 
   defp fsync_dir(dir) do

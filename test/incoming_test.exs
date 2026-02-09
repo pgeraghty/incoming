@@ -1331,6 +1331,37 @@ defmodule IncomingTest do
     :telemetry.detach(id)
   end
 
+  test "telemetry emits enqueue error on message_too_large", %{tmp: tmp} do
+    id = "incoming-test-telemetry-enqueue-error-#{System.unique_integer([:positive])}"
+    parent = self()
+
+    :telemetry.attach(
+      id,
+      [:incoming, :message, :enqueue_error],
+      &IncomingTest.TelemetryHandler.handle/4,
+      parent
+    )
+
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+
+    assert {:error, :message_too_large} =
+             Incoming.Queue.Disk.enqueue(from, to, data,
+               path: tmp,
+               fsync: false,
+               max_message_size: 1
+             )
+
+    assert_receive {:telemetry, [:incoming, :message, :enqueue_error], meas, meta}, 1_000
+    assert meas.count == 1
+    assert is_binary(meta.id)
+    assert meta.reason == :message_too_large
+    assert meta.attempted_size > 1
+
+    :telemetry.detach(id)
+  end
+
   test "session telemetry emits connect", %{} do
     id = "incoming-test-session-connect-#{System.unique_integer([:positive])}"
     parent = self()

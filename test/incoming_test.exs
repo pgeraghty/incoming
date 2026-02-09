@@ -189,6 +189,77 @@ defmodule IncomingTest do
     end
   end
 
+  test "invalid listener port raises", %{} do
+    assert_raise ArgumentError, fn ->
+      Incoming.Listener.child_spec(%{name: :bad, port: -1, tls: :disabled})
+    end
+  end
+
+  test "size enforcement rejects large message", %{} do
+    Application.put_env(:incoming, :session_opts, max_message_size: 10, max_recipients: 100)
+    restart_app()
+
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+
+    send_line(socket, "EHLO client.example.com")
+    read_multiline(socket, "250")
+
+    send_line(socket, "MAIL FROM:<sender@example.com>")
+    assert_recv(socket, "250")
+
+    send_line(socket, "RCPT TO:<rcpt@example.com>")
+    assert_recv(socket, "250")
+
+    send_line(socket, "DATA")
+    assert_recv(socket, "354")
+
+    :ok = :gen_tcp.send(socket, "Subject: Test\r\n\r\nBody body body\r\n.\r\n")
+    assert_recv(socket, "552")
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+
+    Application.put_env(:incoming, :session_opts, max_message_size: 10 * 1024 * 1024, max_recipients: 100)
+    restart_app()
+  end
+
+  test "size limit policy rejects when max size zero", %{} do
+    Application.put_env(:incoming, :session_opts, max_message_size: 0, max_recipients: 100)
+    Application.put_env(:incoming, :policies, [Incoming.Policy.SizeLimit])
+    restart_app()
+
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+
+    send_line(socket, "EHLO client.example.com")
+    read_multiline(socket, "250")
+
+    send_line(socket, "MAIL FROM:<sender@example.com>")
+    assert_recv(socket, "250")
+
+    send_line(socket, "RCPT TO:<rcpt@example.com>")
+    assert_recv(socket, "250")
+
+    send_line(socket, "DATA")
+    assert_recv(socket, "354")
+    :ok = :gen_tcp.send(socket, "Subject: Test\r\n\r\nBody\r\n.\r\n")
+    assert_recv(socket, "552")
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+
+    Application.put_env(:incoming, :session_opts, max_message_size: 10 * 1024 * 1024, max_recipients: 100)
+    Application.put_env(:incoming, :policies, [])
+    restart_app()
+  end
+
+  test "queue path validation rejects empty path", %{} do
+    assert_raise ArgumentError, fn ->
+      Incoming.Validate.queue_opts!(path: "")
+    end
+  end
+
   test "rate limiter rejects after threshold", %{} do
     Application.put_env(:incoming, :policies, [Incoming.Policy.RateLimiter])
     restart_app()

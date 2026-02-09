@@ -22,6 +22,16 @@ defmodule IncomingTest do
     assert headers["from"] == "sender@example.com"
   end
 
+  test "message headers handle folded lines and duplicates", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Line1\r\n\tLine2\r\nSubject: Final\r\n\r\nBody\r\n"
+
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    headers = Incoming.Message.headers(message)
+    assert headers["subject"] == "Final"
+  end
+
   test "accepts smtp session and queues message", %{tmp: tmp} do
     {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
 
@@ -425,6 +435,19 @@ defmodule IncomingTest do
     File.rm!(Path.join([tmp, "committed", message.id, "meta.json"]))
 
     assert {:empty} = Incoming.Queue.Disk.dequeue()
+  end
+
+  test "queue handles partial metadata (missing fields)", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    File.write!(Path.join([tmp, "committed", message.id, "meta.json"]), Jason.encode!(%{"received_at" => "bad"}))
+
+    assert {:ok, loaded} = Incoming.Queue.Disk.dequeue()
+    assert loaded.mail_from == nil
+    assert loaded.rcpt_to == []
   end
 
   test "queue recover handles stray processing entries", %{tmp: tmp} do

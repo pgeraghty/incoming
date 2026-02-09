@@ -504,6 +504,23 @@ defmodule IncomingTest do
     end
   end
 
+  test "tls config rejects mismatched cert/key", %{tmp: tmp} do
+    # Generate an RSA key that does not match the test cert.
+    key = :public_key.generate_key({:rsa, 2048, 65_537})
+    pem = :public_key.pem_encode([:public_key.pem_entry_encode(:RSAPrivateKey, key)])
+    keyfile = Path.join(tmp, "mismatch-key.pem")
+    File.write!(keyfile, pem)
+
+    assert_raise ArgumentError, fn ->
+      Incoming.Listener.child_spec(%{
+        name: :bad,
+        port: 2527,
+        tls: :required,
+        tls_opts: [certfile: "test/fixtures/test-cert.pem", keyfile: keyfile]
+      })
+    end
+  end
+
   test "invalid listener port raises", %{} do
     assert_raise ArgumentError, fn ->
       Incoming.Listener.child_spec(%{name: :bad, port: -1, tls: :disabled})

@@ -65,6 +65,8 @@ defmodule Incoming.Listener do
           "keyfile"
         )
 
+        validate_key_matches_cert!(certfile, keyfile)
+
         :ok
     end
   end
@@ -84,6 +86,31 @@ defmodule Incoming.Listener do
     end
 
     :ok
+  end
+
+  defp validate_key_matches_cert!(certfile, keyfile) do
+    {:ok, cert_pem} = File.read(certfile)
+    {:ok, key_pem} = File.read(keyfile)
+
+    [{:Certificate, cert_der, _} | _] = :public_key.pem_decode(cert_pem)
+    [key_entry | _] = :public_key.pem_decode(key_pem)
+
+    {:OTPCertificate, tbs, _sigalg, _sig} = :public_key.pkix_decode_cert(cert_der, :otp)
+    spki = elem(tbs, 7)
+
+    case {elem(spki, 2), :public_key.pem_entry_decode(key_entry)} do
+      {{:RSAPublicKey, cert_n, _cert_e},
+       {:RSAPrivateKey, _ver, key_n, _key_e, _d, _p, _q, _dp, _dq, _qi, _other}} ->
+        if cert_n != key_n do
+          raise ArgumentError, "keyfile does not match certfile public key"
+        end
+
+        :ok
+
+      _ ->
+        # Non-RSA key/cert pairs are allowed but not validated for match here.
+        :ok
+    end
   end
 
   defp maybe_add_tls_options(opts, _tls_opts, :disabled), do: opts

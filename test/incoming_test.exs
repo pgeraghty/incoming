@@ -450,6 +450,18 @@ defmodule IncomingTest do
     assert loaded.rcpt_to == []
   end
 
+  test "queue handles invalid timestamp in metadata", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    File.write!(Path.join([tmp, "committed", message.id, "meta.json"]), Jason.encode!(%{"received_at" => "not-a-time"}))
+
+    assert {:ok, loaded} = Incoming.Queue.Disk.dequeue()
+    assert %DateTime{} = loaded.received_at
+  end
+
   test "queue recover handles stray processing entries", %{tmp: tmp} do
     processing = Path.join([tmp, "processing"])
     File.mkdir_p!(processing)
@@ -639,6 +651,17 @@ defmodule IncomingTest do
     assert_recv(socket, "221")
   end
 
+  test "help command returns 214", %{} do
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+
+    send_line(socket, "HELP")
+    assert_recv(socket, "500")
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+  end
+
   test "policy order preserves sequence", %{} do
     IncomingTest.CapturePolicy.set_target(self())
     Application.put_env(:incoming, :policies, [IncomingTest.CapturePolicy])
@@ -772,6 +795,36 @@ defmodule IncomingTest do
 
     assert_receive {:telemetry, [:incoming, :delivery, :result], _meas, meta}, 1_000
     assert meta.outcome == :ok
+
+    :telemetry.detach(id)
+    Application.put_env(:incoming, :delivery, nil)
+    Application.put_env(:incoming, :delivery_opts, workers: 1, poll_interval: 1_000)
+    restart_app()
+  end
+
+  test "telemetry emits retry and reject outcomes", %{tmp: tmp} do
+    id = "incoming-test-delivery-outcomes-#{System.unique_integer([:positive])}"
+    parent = self()
+
+    :telemetry.attach(
+      id,
+      [:incoming, :delivery, :result],
+      &IncomingTest.TelemetryHandler.handle/4,
+      parent
+    )
+
+    Application.put_env(:incoming, :delivery, IncomingTest.DummyAdapter)
+    Application.put_env(:incoming, :delivery_opts, workers: 1, poll_interval: 10, max_attempts: 1, base_backoff: 1, max_backoff: 1)
+    restart_app()
+
+    IncomingTest.DummyAdapter.set_mode(:retry)
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+    {:ok, _message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+
+    assert_receive {:telemetry, [:incoming, :delivery, :result], _meas, meta1}, 1_000
+    assert meta1.outcome in [:retry, :reject]
 
     :telemetry.detach(id)
     Application.put_env(:incoming, :delivery, nil)

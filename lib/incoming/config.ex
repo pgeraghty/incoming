@@ -13,7 +13,8 @@ defmodule Incoming.Config do
   ]
 
   @default_session_opts [
-    max_message_size: 10 * 1024 * 1024
+    max_message_size: 10 * 1024 * 1024,
+    max_recipients: 100
   ]
 
   def listeners do

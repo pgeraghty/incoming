@@ -38,7 +38,8 @@ You can configure simple policies in `config.exs`:
 config :incoming,
   policies: [
     Incoming.Policy.HelloRequired,
-    Incoming.Policy.SizeLimit
+    Incoming.Policy.SizeLimit,
+    Incoming.Policy.MaxRecipients
   ]
 ```
 

@@ -62,6 +62,26 @@ defmodule IncomingTest do
     assert headers["subject"] == "Привет мир"
   end
 
+  test "message headers empty when missing", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "\r\n\r\nBody\r\n"
+
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    headers = Incoming.Message.headers(message)
+    assert headers == %{}
+  end
+
+  test "message headers prefer last duplicate value", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: One\r\nSubject: Two\r\n\r\nBody\r\n"
+
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    headers = Incoming.Message.headers(message)
+    assert headers["subject"] == "Two"
+  end
+
   test "message headers lower-case keys and trim", %{tmp: tmp} do
     from = "sender@example.com"
     to = ["rcpt@example.com"]
@@ -885,6 +905,104 @@ defmodule IncomingTest do
     assert is_binary(meta.id)
     assert meta.size > 0
 
+    :telemetry.detach(id)
+  end
+
+  test "session telemetry emits connect", %{} do
+    id = "incoming-test-session-connect-#{System.unique_integer([:positive])}"
+    parent = self()
+
+    :telemetry.attach(
+      id,
+      [:incoming, :session, :connect],
+      &IncomingTest.TelemetryHandler.handle/4,
+      parent
+    )
+
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+
+    assert_receive {:telemetry, [:incoming, :session, :connect], _meas, meta}, 1_000
+    assert Map.has_key?(meta, :peer)
+    assert Map.has_key?(meta, :hostname)
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+
+    :telemetry.detach(id)
+  end
+
+  test "session telemetry emits accepted", %{tmp: tmp} do
+    id = "incoming-test-session-accepted-#{System.unique_integer([:positive])}"
+    parent = self()
+
+    :telemetry.attach(
+      id,
+      [:incoming, :session, :accepted],
+      &IncomingTest.TelemetryHandler.handle/4,
+      parent
+    )
+
+    Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
+    restart_app()
+
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+    send_line(socket, "EHLO client.example.com")
+    read_multiline(socket, "250")
+    send_line(socket, "MAIL FROM:<sender@example.com>")
+    assert_recv(socket, "250")
+    send_line(socket, "RCPT TO:<rcpt@example.com>")
+    assert_recv(socket, "250")
+    send_line(socket, "DATA")
+    assert_recv(socket, "354")
+    :ok = :gen_tcp.send(socket, "Subject: Test\r\n\r\nBody\r\n.\r\n")
+    assert_recv(socket, "250")
+
+    assert_receive {:telemetry, [:incoming, :session, :accepted], _meas, meta}, 1_000
+    assert is_binary(meta.id)
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+
+    :telemetry.detach(id)
+  end
+
+  test "session telemetry emits rejected with reason", %{} do
+    id = "incoming-test-session-rejected-#{System.unique_integer([:positive])}"
+    parent = self()
+
+    :telemetry.attach(
+      id,
+      [:incoming, :session, :rejected],
+      &IncomingTest.TelemetryHandler.handle/4,
+      parent
+    )
+
+    Application.put_env(:incoming, :policies, [IncomingTest.RejectDataPolicy])
+    restart_app()
+
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+    send_line(socket, "EHLO client.example.com")
+    read_multiline(socket, "250")
+    send_line(socket, "MAIL FROM:<sender@example.com>")
+    assert_recv(socket, "250")
+    send_line(socket, "RCPT TO:<rcpt@example.com>")
+    assert_recv(socket, "250")
+    send_line(socket, "DATA")
+    assert_recv(socket, "354")
+    :ok = :gen_tcp.send(socket, "Subject: Test\r\n\r\nBody\r\n.\r\n")
+    assert_recv(socket, "554")
+
+    assert_receive {:telemetry, [:incoming, :session, :rejected], _meas, meta}, 1_000
+    assert meta.reason == "Data rejected"
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+
+    Application.put_env(:incoming, :policies, [])
+    restart_app()
     :telemetry.detach(id)
   end
 

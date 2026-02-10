@@ -69,11 +69,15 @@ defmodule Incoming.Session do
 
   @impl true
   def handle_MAIL(from, state) do
-    state = %{state | mail_from: from, rcpt_to: []}
+    candidate = %{state | mail_from: from, rcpt_to: []}
 
-    case policy_check(:mail_from, state) do
-      :ok -> {:ok, state}
-      {:reject, code, message} -> {:error, "#{code} #{message}", state}
+    case policy_check(:mail_from, candidate) do
+      :ok ->
+        {:ok, candidate}
+
+      {:reject, code, message} ->
+        # Don't retain a rejected sender in the envelope.
+        {:error, "#{code} #{message}", %{state | mail_from: nil, rcpt_to: []}}
     end
   end
 

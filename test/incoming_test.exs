@@ -1312,6 +1312,32 @@ defmodule IncomingTest do
     assert decoded["reason"] =~ "incomplete_write"
   end
 
+  test "queue recover dead-letters incomplete staged incoming entry when raw is missing", %{tmp: tmp} do
+    id = "staged-incomplete-raw-missing-#{System.unique_integer([:positive])}"
+    base = Path.join([tmp, "incoming", id])
+    File.mkdir_p!(base)
+
+    # meta.tmp exists but raw.tmp is missing
+    File.write!(
+      Path.join(base, "meta.tmp"),
+      Jason.encode!(%{
+        "id" => id,
+        "mail_from" => "sender@example.com",
+        "rcpt_to" => ["rcpt@example.com"],
+        "received_at" => DateTime.utc_now() |> DateTime.to_iso8601(),
+        "attempts" => 0
+      })
+    )
+
+    assert :ok = Incoming.Queue.Disk.recover()
+
+    refute File.exists?(base)
+    dead_json = Path.join([tmp, "dead", id, "dead.json"])
+    assert File.exists?(dead_json)
+    decoded = Jason.decode!(File.read!(dead_json))
+    assert decoded["reason"] =~ "incomplete_write"
+  end
+
   test "queue depth telemetry emits periodic event", %{tmp: tmp} do
     id = "incoming-test-queue-depth-#{System.unique_integer([:positive])}"
     parent = self()

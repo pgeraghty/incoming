@@ -70,6 +70,14 @@ Retries move messages back to `committed/`. Rejects move to `dead/`.
 
 `meta.json` includes an `attempts` counter used to enforce `max_attempts` across restarts.
 
+### Recovery Notes
+
+On application start, the queue runs a recovery pass that:
+
+- Moves any `processing/<id>/` entries back to `committed/` for re-delivery.
+- Finalizes crash leftovers by promoting `raw.tmp`/`meta.tmp` to `raw.eml`/`meta.json` where possible.
+- Dead-letters incomplete or invalid entries (for example, missing `raw.eml` or `meta.json`, or file entries where a directory is expected) by moving them into `dead/<id>/` with a `dead.json` reason.
+
 ## Telemetry (Early)
 
 Events emitted:

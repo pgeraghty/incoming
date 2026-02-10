@@ -128,6 +128,35 @@ config :incoming,
 - SMTP DATA is fully buffered in memory by `gen_smtp` before we write to disk.
 - Large messages can consume significant memory; streaming support is planned.
 
+## Memory, Limits, and Sizing Notes
+
+Incoming currently relies on `gen_smtp` for SMTP parsing and DATA receive. This has two important implications:
+
+1. DATA is received incrementally, but it is still accumulated and flattened into a single binary before `Incoming.Session.handle_DATA/4` is invoked.
+2. Message size is still bounded: `gen_smtp` enforces `max_message_size` both:
+   - at `MAIL FROM` time when the client provides `SIZE=<n>` (rejects early with `552` if the estimate exceeds the limit)
+   - during DATA receive (aborts and returns `552 Message too large` once the limit is exceeded)
+
+### Capacity Math (Rule Of Thumb)
+
+Because DATA is accumulated and then flattened, peak memory per in-flight DATA transaction can be roughly:
+
+`~ 2 * max_message_size` (plus overhead, especially for many small chunks).
+
+This means total worst-case transient memory is approximately:
+
+`concurrent_DATA_sessions * 2 * max_message_size`.
+
+In practice you should treat `max_message_size` and concurrency limits as a pair.
+
+### Practical Recommendations
+
+- Keep `max_message_size` conservative unless you are confident in your VM memory headroom.
+- Bound concurrency using listener options:
+  - `max_connections` (Ranch connection cap)
+  - `num_acceptors` (acceptor concurrency)
+- If you need "never buffer the full message in memory", that requires a different SMTP DATA receive strategy than `gen_smtp` currently provides (true streaming support is planned).
+
 ## Testing
 
 ```bash

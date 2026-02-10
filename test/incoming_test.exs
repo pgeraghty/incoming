@@ -1496,6 +1496,14 @@ defmodule IncomingTest do
     assert Incoming.Queue.Disk.depth() == 2
   end
 
+  test "queue depth ignores non-directory entries in committed", %{tmp: tmp} do
+    File.mkdir_p!(Path.join(tmp, "committed"))
+    File.write!(Path.join([tmp, "committed", "not-a-message"]), "placeholder")
+    File.mkdir_p!(Path.join([tmp, "committed", "real-message"]))
+
+    assert Incoming.Queue.Disk.depth() == 1
+  end
+
   test "queue dequeue returns smallest id first", %{tmp: tmp} do
     for id <- ["a", "b"] do
       base = Path.join([tmp, "committed", id])

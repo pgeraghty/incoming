@@ -261,7 +261,7 @@ defmodule Incoming.Queue.Disk do
     path = state_path()
     ensure_dirs(path)
     committed = Path.join(path, "committed")
-    length(list_ids(committed))
+    length(list_dir_ids(committed))
   end
 
   @impl true
@@ -358,6 +358,11 @@ defmodule Incoming.Queue.Disk do
       _ ->
         []
     end
+  end
+
+  defp list_dir_ids(dir) do
+    list_ids(dir)
+    |> Enum.filter(fn entry -> File.dir?(Path.join(dir, entry)) end)
   end
 
   defp ensure_dirs(path) do

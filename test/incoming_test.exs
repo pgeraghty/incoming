@@ -611,7 +611,7 @@ defmodule IncomingTest do
     assert File.exists?(Path.join([tmp, "dead", id1, "dead.json"]))
   end
 
-  test "queue recover moves processing file entries", %{tmp: tmp} do
+  test "queue recover dead-letters processing file entries", %{tmp: tmp} do
     id = "file-entry-#{System.unique_integer([:positive])}"
     processing = Path.join([tmp, "processing", id])
     File.mkdir_p!(Path.dirname(processing))
@@ -619,8 +619,24 @@ defmodule IncomingTest do
 
     :ok = Incoming.Queue.Disk.recover()
 
-    assert File.exists?(Path.join([tmp, "committed", id]))
     refute File.exists?(processing)
+    refute File.exists?(Path.join([tmp, "committed", id]))
+    assert File.exists?(Path.join([tmp, "dead", id, "dead.json"]))
+  end
+
+  test "queue recover dead-letters committed file entries", %{tmp: tmp} do
+    id = "file-committed-#{System.unique_integer([:positive])}"
+    committed = Path.join([tmp, "committed", id])
+    File.mkdir_p!(Path.dirname(committed))
+    File.write!(committed, "placeholder")
+
+    :ok = Incoming.Queue.Disk.recover()
+
+    refute File.exists?(committed)
+    dead_json = Path.join([tmp, "dead", id, "dead.json"])
+    assert File.exists?(dead_json)
+    decoded = Jason.decode!(File.read!(dead_json))
+    assert decoded["reason"] =~ "invalid_committed_entry"
   end
 
   test "queue dequeue skips file entry", %{tmp: tmp} do

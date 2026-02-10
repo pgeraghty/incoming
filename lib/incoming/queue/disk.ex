@@ -277,15 +277,19 @@ defmodule Incoming.Queue.Disk do
       from = Path.join(processing, id)
       to = Path.join(committed, id)
 
-      case File.rename(from, to) do
-        :ok ->
-          :ok
+      if File.dir?(from) do
+        case File.rename(from, to) do
+          :ok ->
+            :ok
 
-        {:error, :eexist} ->
-          move_to_dead(from, dead, id, :recover_conflict)
+          {:error, :eexist} ->
+            move_to_dead(from, dead, id, :recover_conflict)
 
-        {:error, reason} ->
-          move_to_dead(from, dead, id, {:recover_error, reason})
+          {:error, reason} ->
+            move_to_dead(from, dead, id, {:recover_error, reason})
+        end
+      else
+        move_to_dead(from, dead, id, :invalid_processing_entry)
       end
     end
 
@@ -327,6 +331,8 @@ defmodule Incoming.Queue.Disk do
         if not (File.exists?(raw) and File.exists?(meta)) do
           move_to_dead(base, dead, id, :incomplete_committed_entry)
         end
+      else
+        move_to_dead(base, dead, id, :invalid_committed_entry)
       end
     end
 

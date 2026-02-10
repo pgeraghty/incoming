@@ -87,14 +87,18 @@ defmodule Incoming.Session do
     if is_nil(state.mail_from) do
       {:error, resp(503, "Bad sequence of commands"), state}
     else
-      state = %{state | rcpt_to: state.rcpt_to ++ [to]}
-
-      if length(state.rcpt_to) > state.max_recipients do
+      if length(state.rcpt_to) + 1 > state.max_recipients do
         {:error, resp(452, "Too many recipients"), state}
       else
-        case policy_check(:rcpt_to, state) do
-          :ok -> {:ok, state}
-          {:reject, code, message} -> {:error, resp(code, message), state}
+        candidate = %{state | rcpt_to: state.rcpt_to ++ [to]}
+
+        case policy_check(:rcpt_to, candidate) do
+          :ok ->
+            {:ok, candidate}
+
+          {:reject, code, message} ->
+            # Don't retain rejected recipients in the envelope.
+            {:error, resp(code, message), state}
         end
       end
     end

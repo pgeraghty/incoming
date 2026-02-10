@@ -602,6 +602,47 @@ defmodule IncomingTest do
     restart_app()
   end
 
+  test "rejected RCPT does not count toward max recipients", %{} do
+    IncomingTest.RejectRcptOncePolicy.reset()
+
+    Application.put_env(:incoming, :policies, [IncomingTest.RejectRcptOncePolicy])
+
+    Application.put_env(:incoming, :session_opts,
+      max_message_size: 10 * 1024 * 1024,
+      max_recipients: 1
+    )
+
+    restart_app()
+
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+
+    send_line(socket, "EHLO client.example.com")
+    read_multiline(socket, "250")
+
+    send_line(socket, "MAIL FROM:<sender@example.com>")
+    assert_recv(socket, "250")
+
+    # Rejected by policy, should not be retained in the envelope.
+    send_line(socket, "RCPT TO:<rcpt1@example.com>")
+    assert_recv(socket, "550")
+
+    # Allowed by policy, should not hit max recipients.
+    send_line(socket, "RCPT TO:<rcpt2@example.com>")
+    assert_recv(socket, "250")
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+
+    Application.put_env(:incoming, :policies, [])
+    Application.put_env(:incoming, :session_opts,
+      max_message_size: 10 * 1024 * 1024,
+      max_recipients: 100
+    )
+
+    restart_app()
+  end
+
   test "tls required policy rejects before starttls", %{} do
     Application.put_env(:incoming, :policies, [Incoming.Policy.TlsRequired])
 

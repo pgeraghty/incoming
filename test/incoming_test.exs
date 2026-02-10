@@ -478,9 +478,34 @@ defmodule IncomingTest do
     File.mkdir_p!(committed)
     File.mkdir_p!(processing)
 
+    File.write!(Path.join(committed, "raw.eml"), "Subject: Ok\r\n\r\nBody\r\n")
+
+    File.write!(
+      Path.join(committed, "meta.json"),
+      Jason.encode!(%{
+        "id" => id,
+        "mail_from" => "sender@example.com",
+        "rcpt_to" => ["rcpt@example.com"],
+        "received_at" => DateTime.utc_now() |> DateTime.to_iso8601()
+      })
+    )
+
+    File.write!(Path.join(processing, "raw.eml"), "Subject: Proc\r\n\r\nBody\r\n")
+
+    File.write!(
+      Path.join(processing, "meta.json"),
+      Jason.encode!(%{
+        "id" => id,
+        "mail_from" => "sender@example.com",
+        "rcpt_to" => ["rcpt@example.com"],
+        "received_at" => DateTime.utc_now() |> DateTime.to_iso8601()
+      })
+    )
+
     :ok = Incoming.Queue.Disk.recover()
     assert File.exists?(committed)
     refute File.exists?(processing)
+    assert File.exists?(Path.join([tmp, "dead", id, "dead.json"]))
   end
 
   test "queue recover keeps remaining processing entries after conflict", %{tmp: tmp} do
@@ -493,12 +518,39 @@ defmodule IncomingTest do
     File.mkdir_p!(processing1)
     File.mkdir_p!(processing2)
 
+    File.write!(Path.join(committed, "raw.eml"), "Subject: Ok\r\n\r\nBody\r\n")
+
+    File.write!(
+      Path.join(committed, "meta.json"),
+      Jason.encode!(%{
+        "id" => id1,
+        "mail_from" => "sender@example.com",
+        "rcpt_to" => ["rcpt@example.com"],
+        "received_at" => DateTime.utc_now() |> DateTime.to_iso8601()
+      })
+    )
+
+    for {dir, id} <- [{processing1, id1}, {processing2, id2}] do
+      File.write!(Path.join(dir, "raw.eml"), "Subject: Proc\r\n\r\nBody\r\n")
+
+      File.write!(
+        Path.join(dir, "meta.json"),
+        Jason.encode!(%{
+          "id" => id,
+          "mail_from" => "sender@example.com",
+          "rcpt_to" => ["rcpt@example.com"],
+          "received_at" => DateTime.utc_now() |> DateTime.to_iso8601()
+        })
+      )
+    end
+
     :ok = Incoming.Queue.Disk.recover()
 
     assert File.exists?(committed)
     refute File.exists?(processing1)
     assert File.exists?(Path.join([tmp, "committed", id2]))
     refute File.exists?(processing2)
+    assert File.exists?(Path.join([tmp, "dead", id1, "dead.json"]))
   end
 
   test "queue recover moves processing file entries", %{tmp: tmp} do
@@ -1241,7 +1293,8 @@ defmodule IncomingTest do
     File.mkdir_p!(Path.join(processing, "stray"))
 
     assert :ok = Incoming.Queue.Disk.recover()
-    assert File.exists?(Path.join([tmp, "committed", "stray"]))
+    refute File.exists?(Path.join([tmp, "committed", "stray"]))
+    assert File.exists?(Path.join([tmp, "dead", "stray", "dead.json"]))
   end
 
   test "queue recover promotes raw.tmp and meta.tmp to final names", %{tmp: tmp} do
@@ -1268,6 +1321,31 @@ defmodule IncomingTest do
 
     assert {:ok, message} = Incoming.Queue.Disk.dequeue()
     assert message.id == id
+  end
+
+  test "queue recover dead-letters incomplete committed entry", %{tmp: tmp} do
+    id = "committed-incomplete-#{System.unique_integer([:positive])}"
+    base = Path.join([tmp, "committed", id])
+    File.mkdir_p!(base)
+
+    # meta.tmp exists but raw is missing
+    File.write!(
+      Path.join(base, "meta.tmp"),
+      Jason.encode!(%{
+        "id" => id,
+        "mail_from" => "sender@example.com",
+        "rcpt_to" => ["rcpt@example.com"],
+        "received_at" => DateTime.utc_now() |> DateTime.to_iso8601()
+      })
+    )
+
+    assert :ok = Incoming.Queue.Disk.recover()
+
+    refute File.exists?(base)
+    dead_json = Path.join([tmp, "dead", id, "dead.json"])
+    assert File.exists?(dead_json)
+    decoded = Jason.decode!(File.read!(dead_json))
+    assert decoded["reason"] =~ "incomplete_committed_entry"
   end
 
   test "queue recover finalizes staged incoming entry (incoming -> committed)", %{tmp: tmp} do

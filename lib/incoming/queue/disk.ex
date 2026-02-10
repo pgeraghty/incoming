@@ -274,7 +274,19 @@ defmodule Incoming.Queue.Disk do
     dead = Path.join(path, "dead")
 
     for id <- list_ids(processing) do
-      File.rename(Path.join(processing, id), Path.join([path, "committed", id]))
+      from = Path.join(processing, id)
+      to = Path.join(committed, id)
+
+      case File.rename(from, to) do
+        :ok ->
+          :ok
+
+        {:error, :eexist} ->
+          move_to_dead(from, dead, id, :recover_conflict)
+
+        {:error, reason} ->
+          move_to_dead(from, dead, id, {:recover_error, reason})
+      end
     end
 
     # Try to finalize any partially-written incoming entries after a crash.
@@ -310,6 +322,11 @@ defmodule Incoming.Queue.Disk do
 
         _ = recover_tmp(raw_tmp, raw)
         _ = recover_tmp(meta_tmp, meta)
+
+        # Committed entries should be complete; if they're not, treat as corruption and dead-letter.
+        if not (File.exists?(raw) and File.exists?(meta)) do
+          move_to_dead(base, dead, id, :incomplete_committed_entry)
+        end
       end
     end
 

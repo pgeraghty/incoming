@@ -86,6 +86,7 @@ Events emitted:
 
 - Command ordering is enforced: `RCPT` requires a prior `MAIL`, and `DATA` requires at least one `RCPT` (otherwise `503 Bad sequence of commands`).
 - After `DATA` completes, the envelope is reset so the next transaction must start with a new `MAIL`.
+- Rejected `MAIL`/`RCPT` commands are not retained in the envelope (so rejected recipients do not count toward `max_recipients`).
 
 ## Delivery Adapter (Early)
 

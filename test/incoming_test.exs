@@ -1456,6 +1456,36 @@ defmodule IncomingTest do
     :telemetry.detach(id)
   end
 
+  test "telemetry emits enqueue error when queue path is not a directory", %{tmp: tmp} do
+    id = "incoming-test-telemetry-enqueue-error-notdir-#{System.unique_integer([:positive])}"
+    parent = self()
+
+    :telemetry.attach(
+      id,
+      [:incoming, :message, :enqueue_error],
+      &IncomingTest.TelemetryHandler.handle/4,
+      parent
+    )
+
+    not_a_dir = Path.join(tmp, "not_a_dir")
+    File.write!(not_a_dir, "nope")
+
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+
+    result = Incoming.Queue.Disk.enqueue(from, to, data, path: not_a_dir, fsync: false)
+
+    assert {:error, %File.Error{}} = result
+
+    assert_receive {:telemetry, [:incoming, :message, :enqueue_error], meas, meta}, 1_000
+    assert meas.count == 1
+    assert is_binary(meta.id)
+    assert match?({:exception, File.Error, _}, meta.reason)
+
+    :telemetry.detach(id)
+  end
+
   test "session telemetry emits connect", %{} do
     id = "incoming-test-session-connect-#{System.unique_integer([:positive])}"
     parent = self()

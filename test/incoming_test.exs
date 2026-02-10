@@ -207,6 +207,36 @@ defmodule IncomingTest do
     assert length(File.ls!(Path.join(tmp, "committed"))) == 1
   end
 
+  test "PIPELINING handles misordered commands (rcpt before mail rejected, later accepted)", %{tmp: tmp} do
+    Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
+    restart_app()
+
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+
+    :ok =
+      :gen_tcp.send(
+        socket,
+        "EHLO client.example.com\r\n" <>
+          "RCPT TO:<rcpt@example.com>\r\n" <>
+          "MAIL FROM:<sender@example.com>\r\n" <>
+          "RCPT TO:<rcpt@example.com>\r\n" <>
+          "DATA\r\n"
+      )
+
+    read_multiline(socket, "250")
+    assert_recv(socket, "503")
+    assert_recv(socket, "250")
+    assert_recv(socket, "250")
+    assert_recv(socket, "354")
+
+    :ok = :gen_tcp.send(socket, "Subject: Test\r\n\r\nBody\r\n.\r\nQUIT\r\n")
+    assert_recv(socket, "250")
+    assert_recv(socket, "221")
+
+    assert length(File.ls!(Path.join(tmp, "committed"))) == 1
+  end
+
   test "RSET is accepted after DATA completes", %{tmp: tmp} do
     Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
     restart_app()

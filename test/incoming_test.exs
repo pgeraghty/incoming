@@ -1523,6 +1523,21 @@ defmodule IncomingTest do
     assert decoded["reason"] =~ "incomplete_write"
   end
 
+  test "queue recover dead-letters invalid incoming file entry", %{tmp: tmp} do
+    id = "incoming-file-#{System.unique_integer([:positive])}"
+    base = Path.join([tmp, "incoming", id])
+    File.mkdir_p!(Path.dirname(base))
+    File.write!(base, "placeholder")
+
+    assert :ok = Incoming.Queue.Disk.recover()
+
+    refute File.exists?(base)
+    dead_json = Path.join([tmp, "dead", id, "dead.json"])
+    assert File.exists?(dead_json)
+    decoded = Jason.decode!(File.read!(dead_json))
+    assert decoded["reason"] =~ "invalid_incoming_entry"
+  end
+
   test "queue depth telemetry emits periodic event", %{tmp: tmp} do
     id = "incoming-test-queue-depth-#{System.unique_integer([:positive])}"
     parent = self()

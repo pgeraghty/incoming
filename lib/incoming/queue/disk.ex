@@ -311,6 +311,8 @@ defmodule Incoming.Queue.Disk do
         else
           move_to_dead(base, dead, id, :incomplete_write)
         end
+      else
+        move_to_dead(base, dead, id, :invalid_incoming_entry)
       end
     end
 

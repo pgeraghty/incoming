@@ -239,6 +239,34 @@ defmodule IncomingTest do
     assert length(File.ls!(Path.join(tmp, "committed"))) == 1
   end
 
+  test "RSET resets the envelope mid-transaction", %{tmp: tmp} do
+    Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
+    restart_app()
+
+    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    assert_recv(socket, "220")
+
+    send_line(socket, "EHLO client.example.com")
+    read_multiline(socket, "250")
+
+    send_line(socket, "MAIL FROM:<sender@example.com>")
+    assert_recv(socket, "250")
+
+    send_line(socket, "RCPT TO:<rcpt@example.com>")
+    assert_recv(socket, "250")
+
+    send_line(socket, "RSET")
+    assert_recv(socket, "250")
+
+    send_line(socket, "DATA")
+    assert_recv(socket, "503")
+
+    send_line(socket, "QUIT")
+    assert_recv(socket, "221")
+
+    assert File.ls!(Path.join(tmp, "committed")) == []
+  end
+
   test "envelope resets after DATA completes (RCPT requires new MAIL)", %{tmp: tmp} do
     Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
     restart_app()

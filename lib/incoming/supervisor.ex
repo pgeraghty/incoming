@@ -19,7 +19,7 @@ defmodule Incoming.Supervisor do
 
     Incoming.Config.queue_module().recover()
 
-    children = [queue_child, delivery_child | listener_children]
+    children = [queue_child, Incoming.Policy.RateLimiterSweeper, delivery_child | listener_children]
 
     Supervisor.init(children, strategy: :one_for_one)
   end

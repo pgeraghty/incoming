@@ -39,6 +39,14 @@ config :incoming,
   delivery: MyApp.IncomingAdapter
 ```
 
+For a lightweight or ephemeral setup (no disk persistence):
+
+```elixir
+config :incoming,
+  queue: Incoming.Queue.Memory,
+  queue_opts: []
+```
+
 Then start your application and point a test SMTP client at `localhost:2525`.
 
 ## Policies (Early)
@@ -56,7 +64,25 @@ config :incoming,
   ]
 ```
 
-## Queue Layout
+### Rate Limiter
+
+The rate limiter uses a sliding time window. Counters reset automatically when the window expires, and a background sweeper periodically cleans up stale entries.
+
+```elixir
+config :incoming,
+  rate_limit: 5,                       # max requests per window (default: 5)
+  rate_limit_window: 60,               # window size in seconds (default: 60)
+  rate_limit_sweep_interval: 60_000    # sweep interval in ms (default: 60_000)
+```
+
+## Queue Backends
+
+Two queue backends are available:
+
+- **`Incoming.Queue.Disk`** (default) — durable, fsync-backed, crash-recoverable. Suitable for production.
+- **`Incoming.Queue.Memory`** — ETS-backed, zero-dependency. Messages are lost on restart. Suitable for development, testing, or ephemeral workloads.
+
+### Disk Queue Layout
 
 Messages are stored on disk in:
 
@@ -95,6 +121,7 @@ Events emitted:
 - Command ordering is enforced: `RCPT` requires a prior `MAIL`, and `DATA` requires at least one `RCPT` (otherwise `503 Bad sequence of commands`).
 - After `DATA` completes, the envelope is reset so the next transaction must start with a new `MAIL`.
 - Rejected `MAIL`/`RCPT` commands are not retained in the envelope (so rejected recipients do not count toward `max_recipients`).
+- RFC 5322 header folding is supported: continuation lines (starting with a space or tab) are unfolded, and duplicate headers are joined with `, `.
 
 ## Delivery Adapter (Early)
 
@@ -165,7 +192,14 @@ mix test
 
 ## TLS (Early)
 
-You can enable TLS with self-signed certs for testing:
+Four TLS modes are supported:
+
+- `:disabled` — plaintext only (default)
+- `:optional` — advertises STARTTLS; clients may upgrade
+- `:required` — advertises STARTTLS; policies can enforce upgrade before `MAIL`
+- `:implicit` — connection starts in TLS (port 465 style); STARTTLS is not advertised
+
+### STARTTLS (ports 25/587)
 
 ```elixir
 config :incoming,
@@ -177,6 +211,23 @@ config :incoming,
       tls_opts: [
         certfile: "test/fixtures/test-cert.pem",
         keyfile: "test/fixtures/test-key.pem"
+      ]
+    }
+  ]
+```
+
+### Implicit TLS (port 465)
+
+```elixir
+config :incoming,
+  listeners: [
+    %{
+      name: :smtps,
+      port: 465,
+      tls: :implicit,
+      tls_opts: [
+        certfile: "priv/cert.pem",
+        keyfile: "priv/key.pem"
       ]
     }
   ]

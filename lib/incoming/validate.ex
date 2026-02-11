@@ -5,7 +5,7 @@ defmodule Incoming.Validate do
     tls = Map.get(listener, :tls, :disabled)
     tls_opts = Map.get(listener, :tls_opts, [])
 
-    if tls in [:optional, :required] and
+    if tls in [:optional, :required, :implicit] and
          not (Keyword.has_key?(tls_opts, :certfile) and Keyword.has_key?(tls_opts, :keyfile)) do
       raise ArgumentError, "tls_opts must include :certfile and :keyfile when tls is enabled"
     end

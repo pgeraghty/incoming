@@ -29,7 +29,8 @@ defmodule Incoming.Session do
       queue_opts: queue_opts,
       max_message_size: max_message_size,
       max_recipients: max_recipients,
-      tls_mode: tls_mode
+      tls_mode: tls_mode,
+      tls_active: tls_mode == :implicit
     }
 
     case policy_check(:connect, state) do
@@ -188,7 +189,11 @@ defmodule Incoming.Session do
 
   @impl true
   def handle_STARTTLS(state) do
-    %{state | tls_active: true}
+    if state.tls_active do
+      {:error, "454 Already in TLS", state}
+    else
+      %{state | tls_active: true}
+    end
   end
 
   @impl true

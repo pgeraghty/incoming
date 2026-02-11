@@ -26,12 +26,27 @@ defmodule Incoming.Listener do
       [callbackoptions: callback_opts]
       |> maybe_add_tls_options(tls_opts, tls)
 
-    opts = [
-      {:domain, to_charlist(domain)},
-      {:port, port},
-      {:sessionoptions, session_opts},
-      {:ranch_opts, %{max_connections: max_connections, num_acceptors: num_acceptors}}
-    ]
+    ranch_opts = %{max_connections: max_connections, num_acceptors: num_acceptors}
+
+    ranch_opts =
+      if tls == :implicit do
+        ssl_opts =
+          tls_opts
+          |> Keyword.take([:certfile, :keyfile, :cacertfile, :versions, :ciphers])
+
+        Map.put(ranch_opts, :socket_opts, ssl_opts)
+      else
+        ranch_opts
+      end
+
+    opts =
+      [
+        {:domain, to_charlist(domain)},
+        {:port, port},
+        {:sessionoptions, session_opts},
+        {:ranch_opts, ranch_opts}
+      ]
+      |> maybe_add_protocol(tls)
 
     :gen_smtp_server.child_spec(name, Incoming.Session, opts)
   end
@@ -42,7 +57,7 @@ defmodule Incoming.Listener do
 
   defp validate_tls!(:disabled, _opts), do: :ok
 
-  defp validate_tls!(mode, opts) when mode in [:optional, :required] do
+  defp validate_tls!(mode, opts) when mode in [:optional, :required, :implicit] do
     certfile = Keyword.get(opts, :certfile)
     keyfile = Keyword.get(opts, :keyfile)
 
@@ -113,6 +128,10 @@ defmodule Incoming.Listener do
     end
   end
 
+  defp maybe_add_protocol(opts, :implicit), do: [{:protocol, :ssl} | opts]
+  defp maybe_add_protocol(opts, _mode), do: opts
+
   defp maybe_add_tls_options(opts, _tls_opts, :disabled), do: opts
+  defp maybe_add_tls_options(opts, _tls_opts, :implicit), do: opts
   defp maybe_add_tls_options(opts, tls_opts, _mode), do: Keyword.put(opts, :tls_options, tls_opts)
 end

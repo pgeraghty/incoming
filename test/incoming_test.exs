@@ -76,17 +76,17 @@ defmodule IncomingTest do
 
     {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
     headers = Incoming.Message.headers(message)
-    assert headers["subject"] == "Final"
+    assert headers["subject"] == "Line1 Line2, Final"
   end
 
-  test "message headers keep last duplicate header", %{tmp: tmp} do
+  test "message headers accumulate duplicate headers", %{tmp: tmp} do
     from = "sender@example.com"
     to = ["rcpt@example.com"]
     data = "X-Test: one\r\nX-Test: two\r\n\r\nBody\r\n"
 
     {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
     headers = Incoming.Message.headers(message)
-    assert headers["x-test"] == "two"
+    assert headers["x-test"] == "one, two"
   end
 
   test "message headers trim whitespace", %{tmp: tmp} do
@@ -119,14 +119,14 @@ defmodule IncomingTest do
     assert headers == %{}
   end
 
-  test "message headers prefer last duplicate value", %{tmp: tmp} do
+  test "message headers join duplicate values with comma", %{tmp: tmp} do
     from = "sender@example.com"
     to = ["rcpt@example.com"]
     data = "Subject: One\r\nSubject: Two\r\n\r\nBody\r\n"
 
     {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
     headers = Incoming.Message.headers(message)
-    assert headers["subject"] == "Two"
+    assert headers["subject"] == "One, Two"
   end
 
   test "message headers lower-case keys and trim", %{tmp: tmp} do
@@ -149,6 +149,59 @@ defmodule IncomingTest do
     headers = Incoming.Message.headers(message)
     assert headers["subject"] == "Ok"
     refute Map.has_key?(headers, "notaheadline")
+  end
+
+  test "header folding with tab continuation", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Hello\r\n\tWorld\r\n\r\nBody\r\n"
+
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    headers = Incoming.Message.headers(message)
+    assert headers["subject"] == "Hello World"
+  end
+
+  test "header folding with space continuation", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Hello\r\n World\r\n\r\nBody\r\n"
+
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    headers = Incoming.Message.headers(message)
+    assert headers["subject"] == "Hello World"
+  end
+
+  test "header folding with multiple continuation lines", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Received: from mx.example.com\r\n\tby mail.example.com\r\n\twith ESMTP\r\n\r\nBody\r\n"
+
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    headers = Incoming.Message.headers(message)
+    assert headers["received"] == "from mx.example.com by mail.example.com with ESMTP"
+  end
+
+  test "mixed folded and unfolded headers", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "From: sender@example.com\r\nSubject: Long\r\n subject line\r\nTo: rcpt@example.com\r\n\r\nBody\r\n"
+
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    headers = Incoming.Message.headers(message)
+    assert headers["from"] == "sender@example.com"
+    assert headers["subject"] == "Long subject line"
+    assert headers["to"] == "rcpt@example.com"
+  end
+
+  test "continuation line as first line is ignored", %{tmp: tmp} do
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "\tcontinuation\r\nSubject: Ok\r\n\r\nBody\r\n"
+
+    {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
+    headers = Incoming.Message.headers(message)
+    assert headers["subject"] == "Ok"
+    assert map_size(headers) == 1
   end
 
   test "accepts smtp session and queues message", %{tmp: tmp} do
@@ -2548,6 +2601,337 @@ defmodule IncomingTest do
     Application.put_env(:incoming, :delivery, nil)
   end
 
+  # -- Implicit TLS Tests --
+
+  test "implicit tls config requires cert and key" do
+    assert_raise ArgumentError, fn ->
+      Incoming.Listener.child_spec(%{name: :bad, port: 2527, tls: :implicit, tls_opts: []})
+    end
+  end
+
+  test "implicit tls accepts ssl connection" do
+    Application.put_env(:incoming, :listeners, [
+      %{
+        name: :test,
+        port: 2526,
+        tls: :implicit,
+        tls_opts: [
+          certfile: "test/fixtures/test-cert.pem",
+          keyfile: "test/fixtures/test-key.pem"
+        ]
+      }
+    ])
+
+    restart_app()
+
+    {:ok, socket} =
+      :ssl.connect(~c"localhost", 2526, [
+        :binary,
+        active: false,
+        packet: :line,
+        verify: :verify_none
+      ], 5_000)
+
+    assert {:ok, banner} = :ssl.recv(socket, 0, 2_000)
+    assert String.starts_with?(banner, "220")
+
+    :ssl.send(socket, "EHLO client.example.com\r\n")
+    lines = read_multiline_ssl(socket, "250")
+    refute Enum.any?(lines, &String.contains?(&1, "STARTTLS"))
+
+    :ssl.send(socket, "MAIL FROM:<sender@example.com>\r\n")
+    assert {:ok, resp} = :ssl.recv(socket, 0, 2_000)
+    assert String.starts_with?(resp, "250")
+
+    :ssl.send(socket, "RCPT TO:<rcpt@example.com>\r\n")
+    assert {:ok, resp} = :ssl.recv(socket, 0, 2_000)
+    assert String.starts_with?(resp, "250")
+
+    :ssl.send(socket, "DATA\r\n")
+    assert {:ok, resp} = :ssl.recv(socket, 0, 2_000)
+    assert String.starts_with?(resp, "354")
+
+    :ssl.send(socket, "Subject: Test\r\n\r\nBody\r\n.\r\n")
+    assert {:ok, resp} = :ssl.recv(socket, 0, 2_000)
+    assert String.starts_with?(resp, "250")
+
+    :ssl.send(socket, "QUIT\r\n")
+    assert {:ok, resp} = :ssl.recv(socket, 0, 2_000)
+    assert String.starts_with?(resp, "221")
+
+    :ssl.close(socket)
+
+    Application.put_env(:incoming, :listeners, [%{name: :test, port: 2526, tls: :disabled}])
+    restart_app()
+  end
+
+  test "implicit tls does not advertise starttls" do
+    Application.put_env(:incoming, :listeners, [
+      %{
+        name: :test,
+        port: 2526,
+        tls: :implicit,
+        tls_opts: [
+          certfile: "test/fixtures/test-cert.pem",
+          keyfile: "test/fixtures/test-key.pem"
+        ]
+      }
+    ])
+
+    restart_app()
+
+    {:ok, socket} =
+      :ssl.connect(~c"localhost", 2526, [
+        :binary,
+        active: false,
+        packet: :line,
+        verify: :verify_none
+      ], 5_000)
+
+    assert {:ok, _banner} = :ssl.recv(socket, 0, 2_000)
+
+    :ssl.send(socket, "EHLO client.example.com\r\n")
+    lines = read_multiline_ssl(socket, "250")
+    refute Enum.any?(lines, &String.contains?(&1, "STARTTLS"))
+
+    :ssl.send(socket, "QUIT\r\n")
+    :ssl.close(socket)
+
+    Application.put_env(:incoming, :listeners, [%{name: :test, port: 2526, tls: :disabled}])
+    restart_app()
+  end
+
+  # -- Rate Limiter Sliding Window Tests --
+
+  test "rate limiter counter resets after window expires" do
+    prev_limit = Application.get_env(:incoming, :rate_limit, 5)
+    prev_window = Application.get_env(:incoming, :rate_limit_window, 60)
+
+    Application.put_env(:incoming, :rate_limit, 2)
+    Application.put_env(:incoming, :rate_limit_window, 1)
+
+    Incoming.Policy.RateLimiter.init_table()
+    :ets.delete_all_objects(:incoming_rate_limits)
+
+    peer = {{127, 0, 0, 99}, 9999}
+    ctx = %{phase: :mail_from, peer: peer}
+
+    assert :ok = Incoming.Policy.RateLimiter.check(ctx)
+    assert {:reject, 554, _} = Incoming.Policy.RateLimiter.check(ctx)
+
+    Process.sleep(1_100)
+
+    assert :ok = Incoming.Policy.RateLimiter.check(ctx)
+
+    Application.put_env(:incoming, :rate_limit, prev_limit)
+    Application.put_env(:incoming, :rate_limit_window, prev_window)
+  end
+
+  test "rate limiter sweeper removes stale entries" do
+    Incoming.Policy.RateLimiter.init_table()
+    Application.put_env(:incoming, :rate_limit_window, 0)
+
+    key = {{127, 0, 0, 200}, :test_sweep}
+    stale_time = System.monotonic_time(:second) - 120
+    :ets.insert(:incoming_rate_limits, {key, 5, stale_time})
+
+    assert :ets.info(:incoming_rate_limits, :size) >= 1
+
+    Incoming.Policy.RateLimiterSweeper.sweep()
+
+    assert :ets.lookup(:incoming_rate_limits, key) == []
+
+    Application.delete_env(:incoming, :rate_limit_window)
+  end
+
+  test "rate limiter sweeper preserves fresh entries" do
+    Incoming.Policy.RateLimiter.init_table()
+    Application.put_env(:incoming, :rate_limit_window, 60)
+
+    key = {{127, 0, 0, 201}, :test_fresh}
+    fresh_time = System.monotonic_time(:second)
+    :ets.insert(:incoming_rate_limits, {key, 3, fresh_time})
+
+    Incoming.Policy.RateLimiterSweeper.sweep()
+
+    assert [{^key, 3, ^fresh_time}] = :ets.lookup(:incoming_rate_limits, key)
+
+    :ets.delete(:incoming_rate_limits, key)
+    Application.delete_env(:incoming, :rate_limit_window)
+  end
+
+  test "rate limiter still enforced within window" do
+    Application.put_env(:incoming, :rate_limit, 2)
+    Application.put_env(:incoming, :rate_limit_window, 60)
+
+    Incoming.Policy.RateLimiter.init_table()
+
+    peer = {{127, 0, 0, 202}, 8888}
+    ctx = %{phase: :mail_from, peer: peer}
+
+    assert :ok = Incoming.Policy.RateLimiter.check(ctx)
+    assert {:reject, 554, _} = Incoming.Policy.RateLimiter.check(ctx)
+
+    Application.put_env(:incoming, :rate_limit, 5)
+    Application.delete_env(:incoming, :rate_limit_window)
+  end
+
+  # -- Memory Queue Tests --
+
+  test "memory queue enqueue/dequeue round-trip" do
+    {:ok, pid} = Incoming.Queue.Memory.start_link([])
+
+    from = "sender@example.com"
+    to = ["rcpt@example.com"]
+    data = "Subject: Test\r\n\r\nBody\r\n"
+
+    {:ok, message} = Incoming.Queue.Memory.enqueue(from, to, data, [])
+    assert message.id != nil
+    assert message.raw_data == data
+    assert message.raw_path == nil
+
+    {:ok, dequeued} = Incoming.Queue.Memory.dequeue()
+    assert dequeued.id == message.id
+
+    GenServer.stop(pid)
+  end
+
+  test "memory queue FIFO ordering" do
+    {:ok, pid} = Incoming.Queue.Memory.start_link([])
+
+    {:ok, m1} = Incoming.Queue.Memory.enqueue("a@x.com", ["b@x.com"], "data1", [])
+    {:ok, m2} = Incoming.Queue.Memory.enqueue("a@x.com", ["b@x.com"], "data2", [])
+
+    {:ok, d1} = Incoming.Queue.Memory.dequeue()
+    {:ok, d2} = Incoming.Queue.Memory.dequeue()
+
+    assert d1.id == m1.id
+    assert d2.id == m2.id
+
+    GenServer.stop(pid)
+  end
+
+  test "memory queue ack removes message" do
+    {:ok, pid} = Incoming.Queue.Memory.start_link([])
+
+    {:ok, message} = Incoming.Queue.Memory.enqueue("a@x.com", ["b@x.com"], "data", [])
+    {:ok, _dequeued} = Incoming.Queue.Memory.dequeue()
+    :ok = Incoming.Queue.Memory.ack(message.id)
+
+    assert {:empty} = Incoming.Queue.Memory.dequeue()
+    assert Incoming.Queue.Memory.depth() == 0
+
+    GenServer.stop(pid)
+  end
+
+  test "memory queue nack retry returns to committed" do
+    {:ok, pid} = Incoming.Queue.Memory.start_link([])
+
+    {:ok, message} = Incoming.Queue.Memory.enqueue("a@x.com", ["b@x.com"], "data", [])
+    {:ok, _dequeued} = Incoming.Queue.Memory.dequeue()
+    assert Incoming.Queue.Memory.depth() == 0
+    :ok = Incoming.Queue.Memory.nack(message.id, :retry, :temporary)
+    assert Incoming.Queue.Memory.depth() == 1
+
+    {:ok, retried} = Incoming.Queue.Memory.dequeue()
+    assert retried.id == message.id
+    assert retried.attempts == 1
+
+    GenServer.stop(pid)
+  end
+
+  test "memory queue nack reject removes message" do
+    {:ok, pid} = Incoming.Queue.Memory.start_link([])
+
+    {:ok, message} = Incoming.Queue.Memory.enqueue("a@x.com", ["b@x.com"], "data", [])
+    {:ok, _dequeued} = Incoming.Queue.Memory.dequeue()
+    :ok = Incoming.Queue.Memory.nack(message.id, :reject, :permanent)
+
+    assert {:empty} = Incoming.Queue.Memory.dequeue()
+    assert Incoming.Queue.Memory.depth() == 0
+
+    GenServer.stop(pid)
+  end
+
+  test "memory queue depth tracking" do
+    {:ok, pid} = Incoming.Queue.Memory.start_link([])
+
+    assert Incoming.Queue.Memory.depth() == 0
+    {:ok, m1} = Incoming.Queue.Memory.enqueue("a@x.com", ["b@x.com"], "data1", [])
+    assert Incoming.Queue.Memory.depth() == 1
+    {:ok, _m2} = Incoming.Queue.Memory.enqueue("a@x.com", ["b@x.com"], "data2", [])
+    assert Incoming.Queue.Memory.depth() == 2
+
+    {:ok, _dequeued} = Incoming.Queue.Memory.dequeue()
+    assert Incoming.Queue.Memory.depth() == 1
+
+    :ok = Incoming.Queue.Memory.ack(m1.id)
+    assert Incoming.Queue.Memory.depth() == 1
+
+    GenServer.stop(pid)
+  end
+
+  test "memory queue recover moves processing back to committed" do
+    {:ok, pid} = Incoming.Queue.Memory.start_link([])
+
+    {:ok, message} = Incoming.Queue.Memory.enqueue("a@x.com", ["b@x.com"], "data", [])
+    {:ok, _dequeued} = Incoming.Queue.Memory.dequeue()
+    assert Incoming.Queue.Memory.depth() == 0
+
+    :ok = Incoming.Queue.Memory.recover()
+    assert Incoming.Queue.Memory.depth() == 1
+
+    {:ok, recovered} = Incoming.Queue.Memory.dequeue()
+    assert recovered.id == message.id
+
+    GenServer.stop(pid)
+  end
+
+  test "memory queue max message size enforcement" do
+    {:ok, pid} = Incoming.Queue.Memory.start_link([])
+
+    assert {:error, :message_too_large} =
+             Incoming.Queue.Memory.enqueue("a@x.com", ["b@x.com"], "12345678", max_message_size: 5)
+
+    assert Incoming.Queue.Memory.depth() == 0
+
+    GenServer.stop(pid)
+  end
+
+  test "memory queue message headers parseable from raw_data" do
+    {:ok, pid} = Incoming.Queue.Memory.start_link([])
+
+    data = "Subject: Test\r\nFrom: sender@example.com\r\n\r\nBody\r\n"
+    {:ok, message} = Incoming.Queue.Memory.enqueue("a@x.com", ["b@x.com"], data, [])
+
+    headers = Incoming.Message.headers(message)
+    assert headers["subject"] == "Test"
+    assert headers["from"] == "sender@example.com"
+
+    GenServer.stop(pid)
+  end
+
+  test "memory queue telemetry emits enqueue event" do
+    {:ok, pid} = Incoming.Queue.Memory.start_link([])
+    id = "memory-queue-telemetry-#{System.unique_integer([:positive])}"
+    parent = self()
+
+    :telemetry.attach(
+      id,
+      [:incoming, :message, :queued],
+      &IncomingTest.TelemetryHandler.handle/4,
+      parent
+    )
+
+    {:ok, _message} = Incoming.Queue.Memory.enqueue("a@x.com", ["b@x.com"], "data", [])
+
+    assert_receive {:telemetry, [:incoming, :message, :queued], _meas, meta}, 1_000
+    assert is_binary(meta.id)
+
+    :telemetry.detach(id)
+    GenServer.stop(pid)
+  end
+
   defp send_line(socket, line) do
     :ok = :gen_tcp.send(socket, line <> "\r\n")
   end
@@ -2594,6 +2978,21 @@ defmodule IncomingTest do
   defp recv_line(socket) do
     assert {:ok, line} = :gen_tcp.recv(socket, 0, 1000)
     line
+  end
+
+  defp read_multiline_ssl(socket, code, acc \\ []) do
+    assert {:ok, line} = :ssl.recv(socket, 0, 2_000)
+
+    cond do
+      String.starts_with?(line, code <> "-") ->
+        read_multiline_ssl(socket, code, [line | acc])
+
+      String.starts_with?(line, code <> " ") ->
+        Enum.reverse([line | acc])
+
+      true ->
+        flunk("unexpected ssl response: #{inspect(line)}")
+    end
   end
 
   defp connect_with_retry(host, port, attempts) do

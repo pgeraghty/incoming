@@ -31,6 +31,7 @@ defmodule Incoming.Queue.Memory do
   @impl Incoming.Queue
   def enqueue(from, to, data, opts) do
     max_message_size = Keyword.get(opts, :max_message_size, nil)
+    max_depth = Keyword.get(opts, :max_depth, Incoming.Config.queue_opts() |> Keyword.get(:max_depth, nil))
 
     if is_integer(max_message_size) and byte_size(data) > max_message_size do
       id = Incoming.Id.generate()
@@ -43,7 +44,18 @@ defmodule Incoming.Queue.Memory do
 
       {:error, :message_too_large}
     else
-      do_enqueue(from, to, data)
+      if is_integer(max_depth) and max_depth >= 0 and depth() >= max_depth do
+        id = Incoming.Id.generate()
+
+        Incoming.Metrics.emit([:incoming, :message, :enqueue_error], %{count: 1}, %{
+          id: id,
+          reason: :queue_full
+        })
+
+        {:error, :queue_full}
+      else
+        do_enqueue(from, to, data)
+      end
     end
   end
 
@@ -143,6 +155,9 @@ defmodule Incoming.Queue.Memory do
 
   @impl Incoming.Queue
   def recover do
+    if :ets.info(@table) == :undefined do
+      :ok
+    else
     match_spec = [{{:"$1", :"$2", :processing, :"$3", :"$4"}, [], [{{:"$1", :"$2", :"$3", :"$4"}}]}]
 
     :ets.select(@table, match_spec)
@@ -151,6 +166,7 @@ defmodule Incoming.Queue.Memory do
     end)
 
     :ok
+    end
   end
 
   defp schedule_depth_telemetry do

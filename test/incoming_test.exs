@@ -205,7 +205,7 @@ defmodule IncomingTest do
   end
 
   test "accepts smtp session and queues message", %{tmp: tmp} do
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
 
     assert_recv(socket, "220")
 
@@ -236,7 +236,7 @@ defmodule IncomingTest do
     Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
     restart_app()
 
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     :ok =
@@ -264,7 +264,7 @@ defmodule IncomingTest do
     Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
     restart_app()
 
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     :ok =
@@ -294,7 +294,7 @@ defmodule IncomingTest do
     Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
     restart_app()
 
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     :ok =
@@ -326,7 +326,7 @@ defmodule IncomingTest do
     Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
     restart_app()
 
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "EHLO client.example.com")
@@ -354,7 +354,7 @@ defmodule IncomingTest do
     Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
     restart_app()
 
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "EHLO client.example.com")
@@ -387,7 +387,7 @@ defmodule IncomingTest do
     Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
     restart_app()
 
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "EHLO client.example.com")
@@ -417,7 +417,7 @@ defmodule IncomingTest do
     Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
     restart_app()
 
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "EHLO client.example.com")
@@ -439,7 +439,7 @@ defmodule IncomingTest do
     Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
     restart_app()
 
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "EHLO client.example.com")
@@ -458,7 +458,7 @@ defmodule IncomingTest do
     Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
     restart_app()
 
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "EHLO client.example.com")
@@ -480,7 +480,7 @@ defmodule IncomingTest do
     Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
     restart_app()
 
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "EHLO client.example.com")
@@ -767,7 +767,7 @@ defmodule IncomingTest do
     Application.put_env(:incoming, :policies, [Incoming.Policy.HelloRequired])
     restart_app()
 
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "MAIL FROM:<sender@example.com>")
@@ -784,7 +784,7 @@ defmodule IncomingTest do
     Application.put_env(:incoming, :policies, [IncomingTest.RejectMailPolicy])
     restart_app()
 
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "EHLO client.example.com")
@@ -811,7 +811,7 @@ defmodule IncomingTest do
 
     restart_app()
 
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "EHLO client.example.com")
@@ -849,7 +849,7 @@ defmodule IncomingTest do
 
     restart_app()
 
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "EHLO client.example.com")
@@ -895,7 +895,7 @@ defmodule IncomingTest do
 
     restart_app()
 
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "EHLO client.example.com")
@@ -1006,7 +1006,7 @@ defmodule IncomingTest do
     Application.put_env(:incoming, :session_opts, max_message_size: 10, max_recipients: 100)
     restart_app()
 
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "EHLO client.example.com")
@@ -1039,7 +1039,7 @@ defmodule IncomingTest do
     Application.put_env(:incoming, :session_opts, max_message_size: 10, max_recipients: 100)
     restart_app()
 
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
     send_line(socket, "EHLO client.example.com")
     read_multiline(socket, "250")
@@ -1067,7 +1067,7 @@ defmodule IncomingTest do
     Application.put_env(:incoming, :policies, [Incoming.Policy.SizeLimit])
     restart_app()
 
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "EHLO client.example.com")
@@ -1115,11 +1115,11 @@ defmodule IncomingTest do
     Application.put_env(:incoming, :rate_limit, 1)
 
     for _ <- 1..1 do
-      {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+      {:ok, socket} = connect_with_retry("localhost", 2526, 10)
       :ok = :gen_tcp.close(socket)
     end
 
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
     send_line(socket, "EHLO client.example.com")
     read_multiline(socket, "250")
@@ -1199,7 +1199,7 @@ defmodule IncomingTest do
 
     restart_app()
 
-    {:ok, socket1} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket1} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket1, "220")
     send_line(socket1, "EHLO client.example.com")
     read_multiline(socket1, "250")
@@ -1208,7 +1208,7 @@ defmodule IncomingTest do
     send_line(socket1, "QUIT")
     assert_recv(socket1, "221")
 
-    {:ok, socket2} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket2} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket2, "220")
     send_line(socket2, "EHLO client.example.com")
     read_multiline(socket2, "250")
@@ -1226,7 +1226,7 @@ defmodule IncomingTest do
     Application.put_env(:incoming, :listeners, [%{name: :test, port: 2526, tls: :disabled}])
     restart_app()
 
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "EHLO client.example.com")
@@ -1244,7 +1244,7 @@ defmodule IncomingTest do
     Application.put_env(:incoming, :session_opts, max_message_size: 1234, max_recipients: 100)
     restart_app()
 
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "EHLO client.example.com")
@@ -1267,7 +1267,7 @@ defmodule IncomingTest do
     Application.put_env(:incoming, :session_opts, max_message_size: 2048, max_recipients: 100)
     restart_app()
 
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
     send_line(socket, "EHLO client.example.com")
     lines = read_multiline_lines(socket, "250")
@@ -1298,7 +1298,7 @@ defmodule IncomingTest do
 
     restart_app()
 
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
     send_line(socket, "EHLO client.example.com")
     lines = read_multiline_lines(socket, "250")
@@ -1784,7 +1784,7 @@ defmodule IncomingTest do
       parent
     )
 
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     assert_receive {:telemetry, [:incoming, :session, :connect], _meas, meta}, 1_000
@@ -1811,7 +1811,7 @@ defmodule IncomingTest do
     Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
     restart_app()
 
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
     send_line(socket, "EHLO client.example.com")
     read_multiline(socket, "250")
@@ -1847,7 +1847,7 @@ defmodule IncomingTest do
     Application.put_env(:incoming, :policies, [IncomingTest.RejectDataPolicy])
     restart_app()
 
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
     send_line(socket, "EHLO client.example.com")
     read_multiline(socket, "250")
@@ -1876,7 +1876,7 @@ defmodule IncomingTest do
     Application.put_env(:incoming, :policies, [IncomingTest.CapturePolicy])
     restart_app()
 
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "EHLO client.example.com")
@@ -1916,7 +1916,7 @@ defmodule IncomingTest do
     Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
     restart_app()
 
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "EHLO client.example.com")
@@ -1935,7 +1935,7 @@ defmodule IncomingTest do
     Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
     restart_app()
 
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "EHLO client.example.com")
@@ -1954,7 +1954,7 @@ defmodule IncomingTest do
   end
 
   test "mail without helo is rejected", %{} do
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "MAIL FROM:<sender@example.com>")
@@ -1965,7 +1965,7 @@ defmodule IncomingTest do
   end
 
   test "noop and rset are accepted", %{} do
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "NOOP")
@@ -1979,7 +1979,7 @@ defmodule IncomingTest do
   end
 
   test "unknown command yields 500", %{} do
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "WUT")
@@ -1990,7 +1990,7 @@ defmodule IncomingTest do
   end
 
   test "quit without helo is accepted", %{} do
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "QUIT")
@@ -1998,7 +1998,7 @@ defmodule IncomingTest do
   end
 
   test "invalid helo yields error", %{} do
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "HELO")
@@ -2009,7 +2009,7 @@ defmodule IncomingTest do
   end
 
   test "invalid helo with extra spaces yields error", %{} do
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "HELO    ")
@@ -2020,7 +2020,7 @@ defmodule IncomingTest do
   end
 
   test "invalid ehlo yields error", %{} do
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "EHLO")
@@ -2031,7 +2031,7 @@ defmodule IncomingTest do
   end
 
   test "help command returns 214", %{} do
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "HELP")
@@ -2042,7 +2042,7 @@ defmodule IncomingTest do
   end
 
   test "vrfy and expn are disabled", %{} do
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "VRFY user@example.com")
@@ -2060,7 +2060,7 @@ defmodule IncomingTest do
     Application.put_env(:incoming, :policies, [IncomingTest.CapturePolicy])
     restart_app()
 
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
     send_line(socket, "EHLO client.example.com")
     read_multiline(socket, "250")
@@ -2093,7 +2093,7 @@ defmodule IncomingTest do
   end
 
   test "invalid mail command yields error", %{} do
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "EHLO client.example.com")
@@ -2107,7 +2107,7 @@ defmodule IncomingTest do
   end
 
   test "invalid rcpt command yields error", %{} do
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "EHLO client.example.com")
@@ -2124,7 +2124,7 @@ defmodule IncomingTest do
   end
 
   test "MAIL and RCPT options are accepted", %{} do
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "EHLO client.example.com")
@@ -2150,7 +2150,7 @@ defmodule IncomingTest do
 
     restart_app()
 
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "MAIL FROM:<sender@example.com>")
@@ -2166,7 +2166,7 @@ defmodule IncomingTest do
   end
 
   test "rset clears envelope", %{} do
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "EHLO client.example.com")
@@ -2189,7 +2189,7 @@ defmodule IncomingTest do
   end
 
   test "rset allows a new transaction", %{} do
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "EHLO client.example.com")
@@ -2220,7 +2220,7 @@ defmodule IncomingTest do
   end
 
   test "rset after data command still rejects without mail", %{} do
-    {:ok, socket} = connect_with_retry(~c"localhost", 2526, 10)
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
     assert_recv(socket, "220")
 
     send_line(socket, "EHLO client.example.com")
@@ -2625,7 +2625,7 @@ defmodule IncomingTest do
     restart_app()
 
     {:ok, socket} =
-      :ssl.connect(~c"localhost", 2526, [
+      :ssl.connect(String.to_charlist("localhost"), 2526, [
         :binary,
         active: false,
         packet: :line,
@@ -2681,7 +2681,7 @@ defmodule IncomingTest do
     restart_app()
 
     {:ok, socket} =
-      :ssl.connect(~c"localhost", 2526, [
+      :ssl.connect(String.to_charlist("localhost"), 2526, [
         :binary,
         active: false,
         packet: :line,
@@ -2932,6 +2932,96 @@ defmodule IncomingTest do
     GenServer.stop(pid)
   end
 
+  test "telemetry prefix rewrites events" do
+    {:ok, pid} = Incoming.Queue.Memory.start_link([])
+    parent = self()
+    id = "telemetry-prefix-#{System.unique_integer([:positive])}"
+
+    old = Application.get_env(:incoming, :telemetry_prefix, [:incoming])
+    Application.put_env(:incoming, :telemetry_prefix, [:myapp, :incoming])
+
+    :telemetry.attach(
+      id,
+      [:myapp, :incoming, :message, :queued],
+      &IncomingTest.TelemetryHandler.handle/4,
+      parent
+    )
+
+    {:ok, _message} = Incoming.Queue.Memory.enqueue("a@x.com", ["b@x.com"], "data", [])
+
+    assert_receive {:telemetry, [:myapp, :incoming, :message, :queued], _meas, _meta}, 1_000
+
+    :telemetry.detach(id)
+    Application.put_env(:incoming, :telemetry_prefix, old)
+    GenServer.stop(pid)
+  end
+
+  test "max_depth backpressure returns 421 and does not commit", %{tmp: tmp} do
+    Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false, max_depth: 0)
+    restart_app()
+
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
+    assert_recv(socket, "220")
+
+    send_line(socket, "EHLO client.example.com")
+    read_multiline(socket, "250")
+
+    send_line(socket, "MAIL FROM:<sender@example.com>")
+    assert_recv(socket, "250")
+
+    send_line(socket, "RCPT TO:<rcpt@example.com>")
+    assert_recv(socket, "250")
+
+    send_line(socket, "DATA")
+    assert_recv(socket, "354")
+
+    :ok = :gen_tcp.send(socket, "Subject: Test\r\n\r\nBody\r\n.\r\n")
+    assert_recv(socket, "421")
+
+    assert File.ls!(Path.join(tmp, "committed")) == []
+    :ok = :gen_tcp.close(socket)
+  end
+
+  test "per-ip connection limit rejects second concurrent connection", %{tmp: tmp} do
+    Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
+    Application.put_env(:incoming, :listeners, [
+      %{name: :test, port: 2526, tls: :disabled, max_connections_per_ip: 1}
+    ])
+
+    restart_app()
+
+    {:ok, s1} = connect_with_retry("localhost", 2526, 10)
+    assert_recv(s1, "220")
+
+    {:ok, s2} = connect_with_retry("localhost", 2526, 10)
+
+    assert {:ok, line} = :gen_tcp.recv(s2, 0, 1_000)
+    assert String.starts_with?(line, "421")
+
+    _ = :gen_tcp.close(s2)
+    _ = :gen_tcp.close(s1)
+  end
+
+  test "max_errors disconnects session with 421", %{tmp: tmp} do
+    Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
+    Application.put_env(:incoming, :session_opts,
+      max_message_size: 10 * 1024 * 1024,
+      max_recipients: 100,
+      max_commands: 1_000,
+      max_errors: 0
+    )
+
+    restart_app()
+
+    {:ok, socket} = connect_with_retry("localhost", 2526, 10)
+    assert_recv(socket, "220")
+
+    send_line(socket, "BOGUS")
+    assert_recv(socket, "421 Too many errors")
+
+    assert {:error, :closed} = :gen_tcp.recv(socket, 0, 1_000)
+  end
+
   defp send_line(socket, line) do
     :ok = :gen_tcp.send(socket, line <> "\r\n")
   end
@@ -2996,6 +3086,13 @@ defmodule IncomingTest do
   end
 
   defp connect_with_retry(host, port, attempts) do
+    host =
+      if is_binary(host) do
+        String.to_charlist(host)
+      else
+        host
+      end
+
     case :gen_tcp.connect(host, port, [:binary, active: false, packet: :line]) do
       {:ok, socket} ->
         {:ok, socket}

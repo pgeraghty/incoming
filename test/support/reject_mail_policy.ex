@@ -5,4 +5,3 @@ defmodule IncomingTest.RejectMailPolicy do
   def check(%{phase: :mail_from}), do: {:reject, 550, "MAIL rejected"}
   def check(_ctx), do: :ok
 end
-

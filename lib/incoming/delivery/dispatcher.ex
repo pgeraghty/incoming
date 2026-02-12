@@ -13,7 +13,9 @@ defmodule Incoming.Delivery.Dispatcher do
             invoke(adapter, message)
           rescue
             e ->
-              Logger.error("delivery_dispatch_error=#{inspect({e.__struct__, Exception.message(e)})}")
+              Logger.error(
+                "delivery_dispatch_error=#{inspect({e.__struct__, Exception.message(e)})}"
+              )
 
               Incoming.Metrics.emit([:incoming, :delivery, :dispatch_error], %{count: 1}, %{
                 id: message.id,

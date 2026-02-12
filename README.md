@@ -18,7 +18,7 @@ Add `incoming` to your list of dependencies in `mix.exs`:
 ```elixir
 def deps do
   [
-    {:incoming, "~> 0.1.0"}
+    {:incoming, "~> 0.5.0"}
   ]
 end
 ```
@@ -35,7 +35,13 @@ config :incoming,
     }
   ],
   queue: Incoming.Queue.Disk,
-  queue_opts: [path: "/tmp/incoming", fsync: true],
+  queue_opts: [
+    path: "/tmp/incoming",
+    fsync: true,
+    max_depth: 100_000,
+    cleanup_interval_ms: 60_000,
+    dead_ttl_seconds: 7 * 24 * 60 * 60
+  ],
   delivery: MyApp.IncomingAdapter
 ```
 
@@ -72,6 +78,7 @@ The rate limiter uses a sliding time window. Counters reset automatically when t
 config :incoming,
   rate_limit: 5,                       # max requests per window (default: 5)
   rate_limit_window: 60,               # window size in seconds (default: 60)
+  rate_limit_max_entries: 100_000,     # cap ETS growth (default: 100_000)
   rate_limit_sweep_interval: 60_000    # sweep interval in ms (default: 60_000)
 ```
 
@@ -123,6 +130,24 @@ Events emitted:
 - Rejected `MAIL`/`RCPT` commands are not retained in the envelope (so rejected recipients do not count toward `max_recipients`).
 - RFC 5322 header folding is supported: continuation lines (starting with a space or tab) are unfolded, and duplicate headers are joined with `, `.
 
+## Safety Limits
+
+Incoming includes several safeguards intended for production traffic:
+
+- `max_depth` (queue backpressure): when exceeded, `DATA` responds `421 Try again later`.
+- `max_connections_per_ip`: when exceeded, new connections are rejected with `421 Too many connections`.
+- `max_commands` / `max_errors`: sessions that exceed limits are disconnected with `421`.
+
+These are configured via `queue_opts`, listener config, and `session_opts` respectively.
+
+## Graceful Shutdown / Drain
+
+Use `Incoming.Control` to stop accepting new connections, drain active sessions, and optionally force close stragglers:
+
+```elixir
+Incoming.Control.shutdown(timeout_ms: 5_000)
+```
+
 ## Delivery Adapter (Early)
 
 Implement `Incoming.DeliveryAdapter` and configure it:
@@ -159,7 +184,7 @@ config :incoming,
 
 Incoming currently relies on `gen_smtp` for SMTP parsing and DATA receive. This has two important implications:
 
-1. DATA is received incrementally, but it is still accumulated and flattened into a single binary before `Incoming.Session.handle_DATA/4` is invoked.
+1. DATA is received incrementally, but it is still accumulated and flattened into a single binary before the session `DATA` callback is invoked.
 2. Message size is still bounded: `gen_smtp` enforces `max_message_size` both:
    - at `MAIL FROM` time when the client provides `SIZE=<n>` (rejects early with `552` if the estimate exceeds the limit)
    - during DATA receive (aborts and returns `552 Message too large` once the limit is exceeded)

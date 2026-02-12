@@ -4,13 +4,14 @@ defmodule Incoming.MixProject do
   def project do
     [
       app: :incoming,
-      version: "0.1.0",
+      version: "0.5.0",
       name: "Incoming",
       description: description(),
       elixir: "~> 1.14",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
       package: package(),
+      docs: docs(),
       deps: deps()
     ]
   end
@@ -44,6 +45,14 @@ defmodule Incoming.MixProject do
     [
       licenses: ["MIT"],
       links: %{"GitHub" => "https://github.com/pgeraghty/incoming"}
+    ]
+  end
+
+  defp docs do
+    [
+      main: "readme",
+      extras: ["README.md", "guide.md", "planned_improvements_plan.md"],
+      source_ref: "main"
     ]
   end
 end

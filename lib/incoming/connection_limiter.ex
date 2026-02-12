@@ -52,4 +52,3 @@ defmodule Incoming.ConnectionLimiter do
     end
   end
 end
-

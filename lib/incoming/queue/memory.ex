@@ -1,5 +1,13 @@
 defmodule Incoming.Queue.Memory do
-  @moduledoc false
+  @moduledoc """
+  ETS-backed in-memory queue implementation.
+
+  This backend is intended for development/test usage or ephemeral workloads.
+  Messages are lost on node restart.
+
+  `Incoming.Queue.Memory` supports `queue_opts` keys such as `:max_depth` and
+  `:max_message_size` (enforced at enqueue time).
+  """
 
   @behaviour Incoming.Queue
 
@@ -31,7 +39,9 @@ defmodule Incoming.Queue.Memory do
   @impl Incoming.Queue
   def enqueue(from, to, data, opts) do
     max_message_size = Keyword.get(opts, :max_message_size, nil)
-    max_depth = Keyword.get(opts, :max_depth, Incoming.Config.queue_opts() |> Keyword.get(:max_depth, nil))
+
+    max_depth =
+      Keyword.get(opts, :max_depth, Incoming.Config.queue_opts() |> Keyword.get(:max_depth, nil))
 
     if is_integer(max_message_size) and byte_size(data) > max_message_size do
       id = Incoming.Id.generate()
@@ -87,7 +97,9 @@ defmodule Incoming.Queue.Memory do
 
   @impl Incoming.Queue
   def dequeue do
-    match_spec = [{{:"$1", :"$2", :committed, :"$3", :"$4"}, [], [{{:"$1", :"$2", :"$3", :"$4"}}]}]
+    match_spec = [
+      {{:"$1", :"$2", :committed, :"$3", :"$4"}, [], [{{:"$1", :"$2", :"$3", :"$4"}}]}
+    ]
 
     case :ets.select(@table, match_spec, 1) do
       {[{seq, _id, message, _data}], _cont} ->
@@ -158,14 +170,16 @@ defmodule Incoming.Queue.Memory do
     if :ets.info(@table) == :undefined do
       :ok
     else
-    match_spec = [{{:"$1", :"$2", :processing, :"$3", :"$4"}, [], [{{:"$1", :"$2", :"$3", :"$4"}}]}]
+      match_spec = [
+        {{:"$1", :"$2", :processing, :"$3", :"$4"}, [], [{{:"$1", :"$2", :"$3", :"$4"}}]}
+      ]
 
-    :ets.select(@table, match_spec)
-    |> Enum.each(fn {seq, id, message, data} ->
-      :ets.insert(@table, {seq, id, :committed, message, data})
-    end)
+      :ets.select(@table, match_spec)
+      |> Enum.each(fn {seq, id, message, data} ->
+        :ets.insert(@table, {seq, id, :committed, message, data})
+      end)
 
-    :ok
+      :ok
     end
   end
 

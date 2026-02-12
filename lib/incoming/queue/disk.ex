@@ -5,6 +5,8 @@ defmodule Incoming.Queue.Disk do
 
   use GenServer
 
+  @depth_table :incoming_disk_queue_depth
+
   def start_link(opts) do
     GenServer.start_link(__MODULE__, opts, name: __MODULE__)
   end
@@ -12,10 +14,12 @@ defmodule Incoming.Queue.Disk do
   @impl true
   def init(opts) do
     opts = Incoming.Validate.queue_opts!(opts)
-    path = Keyword.get(opts, :path, "/tmp/incoming")
-    fsync = Keyword.get(opts, :fsync, true)
+    path = Keyword.get(opts, :path, state_path())
+    fsync = Keyword.get(opts, :fsync, state_fsync())
     ensure_dirs(path)
     ensure_writable!(path)
+    recover_path(path)
+    init_depth_table(path)
     schedule_depth_telemetry()
     {:ok, %{path: path, fsync: fsync}}
   end
@@ -34,8 +38,9 @@ defmodule Incoming.Queue.Disk do
 
   @impl true
   def enqueue_stream(from, to, chunks, opts) do
-    path = Keyword.get(opts, :path, "/tmp/incoming")
-    fsync = Keyword.get(opts, :fsync, true)
+    path = Keyword.get(opts, :path, state_path())
+    fsync = Keyword.get(opts, :fsync, state_fsync())
+    max_depth = Keyword.get(opts, :max_depth, state_max_depth())
     max_message_size = Keyword.get(opts, :max_message_size, nil)
 
     id = Incoming.Id.generate()
@@ -48,6 +53,11 @@ defmodule Incoming.Queue.Disk do
     try do
       _ = Incoming.Validate.queue_opts!(opts)
       ensure_dirs(path)
+
+      if is_integer(max_depth) and max_depth >= 0 and depth_fast(path) >= max_depth do
+        emit_enqueue_error(id, :queue_full)
+        {:error, :queue_full}
+      else
       File.mkdir_p!(base_tmp)
 
       size =
@@ -105,6 +115,7 @@ defmodule Incoming.Queue.Disk do
                 :ok ->
                   case File.rename(base_tmp, base_final) do
                     :ok ->
+                      _ = inc_depth()
                       raw_path = Path.join(base_final, "raw.eml")
                       meta_path = Path.join(base_final, "meta.json")
 
@@ -127,7 +138,7 @@ defmodule Incoming.Queue.Disk do
                       Incoming.Metrics.emit([:incoming, :message, :queued], %{count: 1}, %{
                         id: id,
                         size: size,
-                        queue_depth: depth()
+                        queue_depth: depth_fast(path)
                       })
 
                       {:ok, message}
@@ -144,6 +155,7 @@ defmodule Incoming.Queue.Disk do
                   {:error, reason}
               end
           end
+      end
       end
     rescue
       e ->
@@ -207,6 +219,7 @@ defmodule Incoming.Queue.Disk do
 
               case File.rename(from, to) do
                 :ok ->
+                  _ = dec_depth()
                   message = %{
                     message
                     | raw_path: Path.join(to, "raw.eml"),
@@ -216,12 +229,20 @@ defmodule Incoming.Queue.Disk do
                   {:halt, {:ok, message}}
 
                 {:error, reason} ->
-                  move_to_dead(from, dead, id, {:rename_failed, reason})
+                  case move_to_dead(from, dead, id, {:rename_failed, reason}) do
+                    :ok -> _ = dec_depth()
+                    _ -> :ok
+                  end
+
                   {:cont, {:empty}}
               end
 
             {:error, reason} ->
-              move_to_dead(from, dead, id, reason)
+              case move_to_dead(from, dead, id, reason) do
+                :ok -> _ = dec_depth()
+                _ -> :ok
+              end
+
               {:cont, {:empty}}
           end
         end)
@@ -245,7 +266,11 @@ defmodule Incoming.Queue.Disk do
     case action do
       :retry ->
         _ = bump_attempts(from)
-        File.rename(from, Path.join([path, "committed", message_id]))
+        case File.rename(from, Path.join([path, "committed", message_id])) do
+          :ok -> _ = inc_depth()
+          _ -> :ok
+        end
+
         :ok
 
       :reject ->
@@ -261,12 +286,20 @@ defmodule Incoming.Queue.Disk do
     path = state_path()
     ensure_dirs(path)
     committed = Path.join(path, "committed")
-    length(list_dir_ids(committed))
+    count = length(list_dir_ids(committed))
+    _ = sync_depth(count)
+    count
   end
 
   @impl true
   def recover do
     path = state_path()
+    recover_path(path)
+    init_depth_table(path)
+    :ok
+  end
+
+  defp recover_path(path) do
     ensure_dirs(path)
     processing = Path.join(path, "processing")
     committed = Path.join(path, "committed")
@@ -339,6 +372,71 @@ defmodule Incoming.Queue.Disk do
     end
 
     :ok
+  end
+
+  defp init_depth_table(path) do
+    case :ets.info(@depth_table) do
+      :undefined ->
+        _ =
+          :ets.new(@depth_table, [
+            :named_table,
+            :public,
+            :set,
+            read_concurrency: true,
+            write_concurrency: true
+          ])
+
+      _ ->
+        :ok
+    end
+
+    committed = Path.join(path, "committed")
+    count = length(list_dir_ids(committed))
+    _ = sync_depth(count)
+  end
+
+  defp depth_from_ets do
+    case :ets.lookup(@depth_table, :depth) do
+      [{:depth, count}] -> count
+      _ -> nil
+    end
+  rescue
+    _ -> nil
+  end
+
+  defp sync_depth(count) when is_integer(count) and count >= 0 do
+    :ets.insert(@depth_table, {:depth, count})
+  rescue
+    _ -> :ok
+  end
+
+  defp depth_fast(path) do
+    case depth_from_ets() do
+      count when is_integer(count) and count >= 0 ->
+        count
+
+      _ ->
+        committed = Path.join(path, "committed")
+        length(list_dir_ids(committed))
+    end
+  end
+
+  defp inc_depth do
+    :ets.update_counter(@depth_table, :depth, {2, 1}, {:depth, 0})
+  rescue
+    _ -> :ok
+  end
+
+  defp dec_depth do
+    # Best-effort: don't go negative.
+    case depth_from_ets() do
+      count when is_integer(count) and count > 0 ->
+        _ = :ets.update_counter(@depth_table, :depth, {2, -1}, {:depth, 0})
+        :ok
+
+      _ ->
+        :ok
+    end
   end
 
   defp recover_tmp(tmp_path, final_path) do
@@ -449,8 +547,18 @@ defmodule Incoming.Queue.Disk do
   defp parse_attempts(_), do: 0
 
   defp state_path do
-    Application.get_env(:incoming, :queue_opts, path: "/tmp/incoming")
+    Incoming.Config.queue_opts()
     |> Keyword.get(:path, "/tmp/incoming")
+  end
+
+  defp state_fsync do
+    Incoming.Config.queue_opts()
+    |> Keyword.get(:fsync, true)
+  end
+
+  defp state_max_depth do
+    Incoming.Config.queue_opts()
+    |> Keyword.get(:max_depth, nil)
   end
 
   defp move_to_dead(from, dead_root, id, reason) do
@@ -462,13 +570,23 @@ defmodule Incoming.Queue.Disk do
 
     if File.dir?(from) do
       case File.rename(from, dead_dir) do
-        :ok -> write_dead_reason(dead_dir, reason)
-        _ -> :ok
+        :ok ->
+          write_dead_reason(dead_dir, reason)
+          :ok
+
+        _ ->
+          :error
       end
     else
       _ = File.mkdir_p(dead_dir)
-      _ = File.rename(from, Path.join(dead_dir, "entry"))
-      write_dead_reason(dead_dir, reason)
+      case File.rename(from, Path.join(dead_dir, "entry")) do
+        :ok ->
+          write_dead_reason(dead_dir, reason)
+          :ok
+
+        _ ->
+          :error
+      end
     end
   end
 

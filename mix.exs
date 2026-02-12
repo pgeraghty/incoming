@@ -7,7 +7,7 @@ defmodule Incoming.MixProject do
       version: "0.1.0",
       name: "Incoming",
       description: description(),
-      elixir: "~> 1.19",
+      elixir: "~> 1.14",
       start_permanent: Mix.env() == :prod,
       elixirc_paths: elixirc_paths(Mix.env()),
       package: package(),

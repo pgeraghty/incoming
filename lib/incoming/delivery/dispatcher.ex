@@ -1,11 +1,34 @@
 defmodule Incoming.Delivery.Dispatcher do
   @moduledoc false
 
+  require Logger
+
   def dispatch(message) do
     adapter = Application.get_env(:incoming, :delivery)
 
     if adapter do
-      _ = Task.start(fn -> invoke(adapter, message) end)
+      _ =
+        Task.start(fn ->
+          try do
+            invoke(adapter, message)
+          rescue
+            e ->
+              Logger.error("delivery_dispatch_error=#{inspect({e.__struct__, Exception.message(e)})}")
+
+              Incoming.Metrics.emit([:incoming, :delivery, :dispatch_error], %{count: 1}, %{
+                id: message.id,
+                reason: {:exception, e.__struct__, Exception.message(e)}
+              })
+          catch
+            kind, reason ->
+              Logger.error("delivery_dispatch_error=#{inspect({kind, reason})}")
+
+              Incoming.Metrics.emit([:incoming, :delivery, :dispatch_error], %{count: 1}, %{
+                id: message.id,
+                reason: {kind, reason}
+              })
+          end
+        end)
     end
 
     :ok

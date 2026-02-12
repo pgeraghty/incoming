@@ -7,6 +7,7 @@ defmodule Incoming.Listener do
     port = Map.get(listener, :port, 2525)
     domain = Map.get(listener, :domain, smtp_domain())
     max_connections = Map.get(listener, :max_connections, 1_000)
+    max_connections_per_ip = Map.get(listener, :max_connections_per_ip, 10)
     num_acceptors = Map.get(listener, :num_acceptors, 10)
     tls = Map.get(listener, :tls, :disabled)
     tls_opts = Map.get(listener, :tls_opts, [])
@@ -18,6 +19,9 @@ defmodule Incoming.Listener do
       queue_opts: Incoming.Config.queue_opts(),
       max_message_size: Keyword.get(Incoming.Config.session_opts(), :max_message_size),
       max_recipients: Keyword.get(Incoming.Config.session_opts(), :max_recipients),
+      max_commands: Keyword.get(Incoming.Config.session_opts(), :max_commands, 1_000),
+      max_errors: Keyword.get(Incoming.Config.session_opts(), :max_errors, 10),
+      max_connections_per_ip: max_connections_per_ip,
       tls_mode: tls,
       tls_opts: tls_opts
     ]

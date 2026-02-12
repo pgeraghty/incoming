@@ -12,6 +12,8 @@ Use `mise` to install the correct toolchain:
 mise install
 ```
 
+Toolchain details (and Hex publish notes): see `TOOLCHAIN.md`.
+
 ## Running Tests
 
 ```bash

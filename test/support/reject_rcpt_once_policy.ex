@@ -19,4 +19,3 @@ defmodule IncomingTest.RejectRcptOncePolicy do
 
   def check(_ctx), do: :ok
 end
-

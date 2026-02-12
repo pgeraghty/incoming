@@ -174,7 +174,9 @@ defmodule IncomingTest do
   test "header folding with multiple continuation lines", %{tmp: tmp} do
     from = "sender@example.com"
     to = ["rcpt@example.com"]
-    data = "Received: from mx.example.com\r\n\tby mail.example.com\r\n\twith ESMTP\r\n\r\nBody\r\n"
+
+    data =
+      "Received: from mx.example.com\r\n\tby mail.example.com\r\n\twith ESMTP\r\n\r\nBody\r\n"
 
     {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
     headers = Incoming.Message.headers(message)
@@ -184,7 +186,9 @@ defmodule IncomingTest do
   test "mixed folded and unfolded headers", %{tmp: tmp} do
     from = "sender@example.com"
     to = ["rcpt@example.com"]
-    data = "From: sender@example.com\r\nSubject: Long\r\n subject line\r\nTo: rcpt@example.com\r\n\r\nBody\r\n"
+
+    data =
+      "From: sender@example.com\r\nSubject: Long\r\n subject line\r\nTo: rcpt@example.com\r\n\r\nBody\r\n"
 
     {:ok, message} = Incoming.Queue.Disk.enqueue(from, to, data, path: tmp, fsync: false)
     headers = Incoming.Message.headers(message)
@@ -260,7 +264,9 @@ defmodule IncomingTest do
     assert length(File.ls!(Path.join(tmp, "committed"))) == 1
   end
 
-  test "PIPELINING handles misordered commands (rcpt before mail rejected, later accepted)", %{tmp: tmp} do
+  test "PIPELINING handles misordered commands (rcpt before mail rejected, later accepted)", %{
+    tmp: tmp
+  } do
     Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
     restart_app()
 
@@ -870,6 +876,7 @@ defmodule IncomingTest do
     assert_recv(socket, "221")
 
     Application.put_env(:incoming, :policies, [])
+
     Application.put_env(:incoming, :session_opts,
       max_message_size: 10 * 1024 * 1024,
       max_recipients: 100
@@ -1550,7 +1557,9 @@ defmodule IncomingTest do
     assert decoded["reason"] =~ "incomplete_write"
   end
 
-  test "queue recover dead-letters incomplete staged incoming entry when raw is missing", %{tmp: tmp} do
+  test "queue recover dead-letters incomplete staged incoming entry when raw is missing", %{
+    tmp: tmp
+  } do
     id = "staged-incomplete-raw-missing-#{System.unique_integer([:positive])}"
     base = Path.join([tmp, "incoming", id])
     File.mkdir_p!(base)
@@ -2625,12 +2634,17 @@ defmodule IncomingTest do
     restart_app()
 
     {:ok, socket} =
-      :ssl.connect(String.to_charlist("localhost"), 2526, [
-        :binary,
-        active: false,
-        packet: :line,
-        verify: :verify_none
-      ], 5_000)
+      :ssl.connect(
+        String.to_charlist("localhost"),
+        2526,
+        [
+          :binary,
+          active: false,
+          packet: :line,
+          verify: :verify_none
+        ],
+        5_000
+      )
 
     assert {:ok, banner} = :ssl.recv(socket, 0, 2_000)
     assert String.starts_with?(banner, "220")
@@ -2681,12 +2695,17 @@ defmodule IncomingTest do
     restart_app()
 
     {:ok, socket} =
-      :ssl.connect(String.to_charlist("localhost"), 2526, [
-        :binary,
-        active: false,
-        packet: :line,
-        verify: :verify_none
-      ], 5_000)
+      :ssl.connect(
+        String.to_charlist("localhost"),
+        2526,
+        [
+          :binary,
+          active: false,
+          packet: :line,
+          verify: :verify_none
+        ],
+        5_000
+      )
 
     assert {:ok, _banner} = :ssl.recv(socket, 0, 2_000)
 
@@ -2891,7 +2910,9 @@ defmodule IncomingTest do
     {:ok, pid} = Incoming.Queue.Memory.start_link([])
 
     assert {:error, :message_too_large} =
-             Incoming.Queue.Memory.enqueue("a@x.com", ["b@x.com"], "12345678", max_message_size: 5)
+             Incoming.Queue.Memory.enqueue("a@x.com", ["b@x.com"], "12345678",
+               max_message_size: 5
+             )
 
     assert Incoming.Queue.Memory.depth() == 0
 
@@ -2984,6 +3005,7 @@ defmodule IncomingTest do
 
   test "per-ip connection limit rejects second concurrent connection", %{tmp: tmp} do
     Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
+
     Application.put_env(:incoming, :listeners, [
       %{name: :test, port: 2526, tls: :disabled, max_connections_per_ip: 1}
     ])
@@ -3004,6 +3026,7 @@ defmodule IncomingTest do
 
   test "max_errors disconnects session with 421", %{tmp: tmp} do
     Application.put_env(:incoming, :queue_opts, path: tmp, fsync: false)
+
     Application.put_env(:incoming, :session_opts,
       max_message_size: 10 * 1024 * 1024,
       max_recipients: 100,

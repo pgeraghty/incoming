@@ -9,7 +9,13 @@ defmodule Incoming.Policy.RateLimiter do
     case :ets.info(@table) do
       :undefined ->
         try do
-          :ets.new(@table, [:named_table, :public, :set])
+          :ets.new(@table, [
+            :named_table,
+            :public,
+            :set,
+            read_concurrency: true,
+            write_concurrency: true
+          ])
         rescue
           _ -> :ok
         end
@@ -32,14 +38,18 @@ defmodule Incoming.Policy.RateLimiter do
         :ets.insert(@table, {key, new_count, window_start})
 
         if new_count >= limit() do
-          {:reject, 554, "Too many connections"}
+          {:reject, 554, "Too many requests"}
         else
           :ok
         end
 
       _ ->
-        :ets.insert(@table, {key, 1, now})
-        if 1 >= limit(), do: {:reject, 554, "Too many connections"}, else: :ok
+        if table_full?() do
+          {:reject, 421, "Try again later"}
+        else
+          :ets.insert(@table, {key, 1, now})
+          if 1 >= limit(), do: {:reject, 554, "Too many requests"}, else: :ok
+        end
     end
   end
 
@@ -51,5 +61,25 @@ defmodule Incoming.Policy.RateLimiter do
 
   defp window_size do
     Application.get_env(:incoming, :rate_limit_window, 60)
+  end
+
+  defp table_full? do
+    max = Application.get_env(:incoming, :rate_limit_max_entries, 100_000)
+
+    cond do
+      max in [nil, :infinity] ->
+        false
+
+      is_integer(max) and max > 0 ->
+        case :ets.info(@table, :size) do
+          size when is_integer(size) -> size >= max
+          _ -> false
+        end
+
+      true ->
+        false
+    end
+  rescue
+    _ -> false
   end
 end

@@ -13,7 +13,9 @@ defmodule Incoming.Config do
   @default_queue_opts [
     path: "/tmp/incoming",
     fsync: true,
-    max_depth: 100_000
+    max_depth: 100_000,
+    cleanup_interval_ms: 60_000,
+    dead_ttl_seconds: 7 * 24 * 60 * 60
   ]
 
   @default_session_opts [

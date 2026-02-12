@@ -22,14 +22,7 @@ All tests run sequentially (`async: false`) because they share a single SMTP lis
 
 ## Elixir Version Target
 
-`mix.exs` currently specifies `~> 1.19`. This is overly restrictive. The only Elixir 1.15+ feature in use is the `~c""` charlist sigil (in `session.ex`). All other code is compatible back to at least 1.14.
-
-### TODO: Lower the floor
-
-1. Replace `~c"..."` with `'...'` (single-quoted charlists) in `lib/incoming/session.ex` to remove the 1.15 requirement.
-2. Audit for any other version-gated syntax (none known at this time).
-3. Set `elixir: "~> 1.14"` in `mix.exs` (or whatever the oldest version our dependencies support — `gen_smtp ~> 1.2` and `jason ~> 1.4` both work on 1.14+).
-4. Add CI matrix testing (see below).
+`mix.exs` specifies `elixir: "~> 1.14"`.
 
 ### CI Matrix Testing
 
@@ -115,3 +108,33 @@ lib/incoming/
 - SMTP DATA is fully buffered in memory by gen_smtp before being passed to the session. Streaming DATA is not yet implemented.
 - The memory queue loses all messages on process/node restart.
 - Rate limiter state is per-node (ETS is not distributed).
+
+## Operational Notes
+
+### Dead-Letter Cleanup / GC
+
+The disk queue writes rejected messages into `dead/<id>/`. To avoid unbounded growth, a periodic GC can delete old dead-letter entries:
+
+```elixir
+config :incoming,
+  queue_opts: [
+    cleanup_interval_ms: 60_000,
+    dead_ttl_seconds: 7 * 24 * 60 * 60
+  ]
+```
+
+Set `dead_ttl_seconds: :infinity` (or `nil`) to disable TTL-based deletion.
+
+### Graceful Shutdown / Drain
+
+For controlled shutdowns:
+
+1. Stop accepting new connections.
+2. Drain existing sessions.
+3. Force-close remaining sessions (optional).
+
+Use:
+
+```elixir
+Incoming.Control.shutdown(timeout_ms: 5_000)
+```

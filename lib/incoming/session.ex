@@ -142,7 +142,9 @@ defmodule Incoming.Session do
         {:error, resp(421, "Too many commands"), state}
 
       is_nil(state.mail_from) ->
-        {code, message, state} = inc_errors_and_maybe_limit(503, "Bad sequence of commands", state)
+        {code, message, state} =
+          inc_errors_and_maybe_limit(503, "Bad sequence of commands", state)
+
         {:error, resp(code, message), state}
 
       length(state.rcpt_to) + 1 > state.max_recipients ->
@@ -179,11 +181,15 @@ defmodule Incoming.Session do
     else
       cond do
         is_nil(state.mail_from) ->
-          {code, message, state} = inc_errors_and_maybe_limit(503, "Bad sequence of commands", state)
+          {code, message, state} =
+            inc_errors_and_maybe_limit(503, "Bad sequence of commands", state)
+
           {:error, resp(code, message), state}
 
         state.rcpt_to == [] ->
-          {code, message, state} = inc_errors_and_maybe_limit(503, "Bad sequence of commands", state)
+          {code, message, state} =
+            inc_errors_and_maybe_limit(503, "Bad sequence of commands", state)
+
           {:error, resp(code, message), state}
 
         true ->
@@ -277,7 +283,9 @@ defmodule Incoming.Session do
         {resp(421, "Too many commands"), state}
 
       true ->
-        {code, message, state} = inc_errors_and_maybe_limit(500, "Error: command not recognized", state)
+        {code, message, state} =
+          inc_errors_and_maybe_limit(500, "Error: command not recognized", state)
+
         {resp(code, message), state}
     end
   end
@@ -395,7 +403,8 @@ defmodule Incoming.Session do
     state = inc_errors(state)
     state = maybe_limit_errors(state)
 
-    if is_integer(state.max_errors) and state.max_errors >= 0 and state.error_count > state.max_errors do
+    if is_integer(state.max_errors) and state.max_errors >= 0 and
+         state.error_count > state.max_errors do
       {421, "Too many errors", state}
     else
       {code, message, state}

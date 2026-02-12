@@ -2,7 +2,7 @@
 
 Assessed: 2026-02-12
 Repo: /home/sprite/incoming
-Current version: 0.1.0
+Current version: 0.5.0
 
 ## Corrections vs planned_improvements.md (drift)
 
@@ -37,13 +37,13 @@ Legend:
 15. Chaos engineering: FEASIBLE (harness)
 16. Client compatibility testing: FEASIBLE (harness + scripts)
 17. RFC 5322 header folding: DONE (already supported)
-18. Remove tracked erl_crash.dump: FEASIBLE
+18. Remove tracked erl_crash.dump: DONE
 19. CI/CD: FEASIBLE
 20. Lower Elixir version requirement: FEASIBLE
 21. Split test file: FEASIBLE
 22. Add config examples: FEASIBLE
 23. Publish Hex docs: FEASIBLE
-24. Move recover() out of Supervisor.init/1: FEASIBLE
+24. Move recover() out of supervisor init: FEASIBLE
 25. Fix queue path inconsistency: FEASIBLE
 26. Remove unnecessary Code.ensure_loaded?(:telemetry) guard: FEASIBLE
 27. Fix fire-and-forget in Delivery.Dispatcher: FEASIBLE
@@ -60,7 +60,8 @@ Phase 1: Production-safety, minimal surface area
 - (2) Per-IP connection limits with `421` reject at connect time
 - (3) Max commands / max errors with `421` and forced disconnect
 - (11) Configurable telemetry prefix
-- (24) Move `recover()` out of `Supervisor.init/1`
+- (24) Move `recover()` out of supervisor init
+- (18) remove tracked `erl_crash.dump`
 - (26) Remove telemetry guard
 - (27) Fix dispatcher async error visibility
 - (25) Fix queue path inconsistency (needed to keep limits correct)
@@ -85,4 +86,3 @@ Postgres note:
 Phase 5: Polish
 - (18) remove tracked `erl_crash.dump`
 - (20-23) version floor, test split, config examples, published docs
-

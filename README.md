@@ -23,6 +23,12 @@ def deps do
 end
 ```
 
+## Docker Demo Deployment
+
+For a pull-and-run deployment bundle (Docker image + Compose + optional Let's Encrypt automation), see:
+
+- `deploy/docker/README.md`
+
 ## Quickstart
 
 ```elixir

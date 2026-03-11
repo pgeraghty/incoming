@@ -1,0 +1,28 @@
+name: incoming-demo
+
+services:
+  incoming:
+    image: ${INCOMING_IMAGE:-pgeraghty/incoming-demo:latest}
+    env_file:
+      - .env
+    ports:
+      - "${SMTP_HOST_BIND:-0.0.0.0}:${SMTP_HOST_PORT:-25}:${SMTP_PORT:-2525}/tcp"
+    volumes:
+      - incoming-data:/var/lib/incoming
+      - acme-data:/var/lib/lego:ro
+    restart: unless-stopped
+
+  acme:
+    image: goacme/lego:v4.17.4
+    profiles: ["acme"]
+    env_file:
+      - .env
+    entrypoint: ["/bin/sh", "/scripts/renew.sh"]
+    volumes:
+      - acme-data:/var/lib/lego
+      - ./acme/renew.sh:/scripts/renew.sh:ro
+    restart: unless-stopped
+
+volumes:
+  incoming-data:
+  acme-data:
